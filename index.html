@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📊 Sistema de Análise de Suprimentos®</title>
+<script>
+// Carrega scripts dinamicamente em sequência garantida
+(function(){
+  function loadScript(src, cb){
+    var s = document.createElement('script');
+    s.src = src; s.onload = cb;
+    s.onerror = function(){ console.error('Falha ao carregar: ' + src); cb(); };
+    document.head.appendChild(s);
+  }
+  window._libsReady = false;
+  window._pendingInit = null;
+
+  // Plotly primeiro, depois XLSX
+  loadScript('https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.32.0/plotly.min.js', function(){
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', function(){
+      window._libsReady = true;
+      if(window._pendingInit) window._pendingInit();
+    });
+  });
+})();
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#2c3e50;font-size:13px;overflow:hidden}
+/* overlay / modal */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.75);display:flex;align-items:center;justify-content:center;z-index:9000;backdrop-filter:blur(4px)}
+.modal{background:#fff;padding:40px 44px;border-radius:16px;min-width:360px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.3)}
+.modal h2{font-size:20px;margin-bottom:6px;color:#1e293b}
+.modal p{color:#64748b;font-size:12px;margin-bottom:22px;line-height:1.5}
+.modal input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;text-align:center;margin-bottom:14px;transition:.2s}
+.modal input:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+/* header */
+header{background:linear-gradient(135deg,#1d4ed8 0%,#3b82f6 100%);color:#fff;padding:11px 22px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(29,78,216,.35)}
+header h1{font-size:15px;font-weight:700;letter-spacing:.3px}
+header small{font-size:11px;opacity:.75}
+/* controls */
+#controls{background:#fff;padding:9px 18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.cg{display:flex;align-items:center;gap:5px}
+.cg label{font-weight:600;font-size:11px;white-space:nowrap;color:#475569}
+select,input[type=number],input[type=text]{padding:5px 9px;border:1.5px solid #e2e8f0;border-radius:7px;font-size:12px;background:#f8fafc;min-width:115px;transition:.2s;color:#1e293b}
+select:focus,input:focus{outline:none;border-color:#3b82f6;background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+/* buttons */
+.btn{padding:6px 15px;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;transition:all .18s;letter-spacing:.2px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:#3b82f6;color:#fff}.btn-primary:hover:not(:disabled){background:#2563eb;transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,130,246,.35)}
+.btn-success{background:#10b981;color:#fff}.btn-success:hover:not(:disabled){background:#059669;transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,185,129,.35)}
+.btn-info{background:#0891b2;color:#fff}.btn-info:hover:not(:disabled){background:#0e7490}
+/* upload area */
+#upload-area{background:#f0f9ff;border:2px dashed #3b82f6;border-radius:10px;padding:22px;text-align:center;cursor:pointer;transition:.2s;margin-bottom:0}
+#upload-area:hover{background:#e0f2fe;border-color:#2563eb}
+#upload-area input{display:none}
+/* tabs */
+#tabs{background:#fff;display:flex;gap:1px;padding:0 18px;border-bottom:2px solid #e2e8f0;overflow-x:auto}
+.tab{padding:9px 15px;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;border-bottom:3px solid transparent;white-space:nowrap;transition:all .18s;user-select:none}
+.tab:hover{color:#3b82f6;background:#f8fafc}
+.tab.active{color:#3b82f6;border-bottom-color:#3b82f6;background:linear-gradient(to bottom,rgba(59,130,246,.04),transparent)}
+/* content */
+#content{padding:14px 18px;overflow-y:auto;height:calc(100vh - 172px)}
+.panel{display:none}.panel.active{display:block}
+/* chart grid */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chart-card{background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 8px rgba(0,0,0,.08);border:1px solid #f1f5f9;transition:.2s}
+.chart-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.13);transform:translateY(-1px)}
+/* adv controls */
+.adv-action{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:8px 2px}
+/* KPI cards */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px}
+.kpi-card{background:#fff;border-radius:10px;padding:14px 16px;box-shadow:0 1px 6px rgba(0,0,0,.07);border:1px solid #f1f5f9;border-left:4px solid #3b82f6}
+.kpi-card.green{border-left-color:#10b981}.kpi-card.red{border-left-color:#ef4444}.kpi-card.yellow{border-left-color:#f59e0b}.kpi-card.purple{border-left-color:#8b5cf6}
+.kpi-title{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.kpi-value{font-size:17px;font-weight:700;color:#1e293b}
+.kpi-value.pos{color:#10b981}.kpi-value.neg{color:#ef4444}
+.kpi-sub{font-size:11px;color:#94a3b8;margin-top:2px}
+.section-title{font-size:13px;font-weight:700;color:#374151;margin:14px 0 8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px}
+/* table */
+.tbl-wrap{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,.08);border:1px solid #f1f5f9}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;padding:10px 12px;text-align:left;font-weight:600;font-size:11px;letter-spacing:.3px}
+td{padding:8px 12px;border-bottom:1px solid #f8fafc;color:#374151}
+tr:hover td{background:#f8fafc}
+tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px solid #e2e8f0}
+/* status */
+#status-bar{background:#fff;border-top:1px solid #e2e8f0;padding:5px 18px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;position:fixed;bottom:0;left:0;right:0;height:28px}
+#status-dot{width:7px;height:7px;border-radius:50%;background:#10b981;display:inline-block;margin-right:6px}
+/* spinner */
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* empty */
+.empty{text-align:center;padding:60px 20px;color:#94a3b8}
+.empty .icon{font-size:48px;margin-bottom:12px}
+.radio-g{display:flex;gap:10px;align-items:center}
+.radio-g label{display:flex;align-items:center;gap:4px;font-weight:500;cursor:pointer;font-size:12px;color:#475569}
+/* toggle modo */
+.modo-toggle{display:flex;align-items:center;gap:0;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc}
+.modo-btn{padding:5px 13px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:transparent;color:#64748b;transition:all .18s;white-space:nowrap}
+.modo-btn.active{background:#3b82f6;color:#fff}
+.modo-btn.active.consumo{background:#10b981}
+</style>
+</head>
+<body>
+
+<!-- AVISO LEGAL -->
+<div id="ov-aviso" class="overlay" style="display:none">
+  <div class="modal" style="max-width:540px;text-align:left">
+    <h2 style="text-align:center;margin-bottom:14px">⚖️ Aviso Legal</h2>
+    <p><strong>© 2025 Wendell França®</strong> — Todos os direitos reservados.</p><br>
+    <p>É expressamente proibida a utilização, reprodução, modificação ou distribuição deste sistema, total ou parcialmente, sem o consentimento prévio e por escrito do desenvolvedor.</p><br>
+    <p>Este sistema está protegido pela <strong>Lei de Direitos Autorais (Lei nº 9.610/98)</strong> e tratados internacionais.</p>
+    <br><div style="text-align:center"><button class="btn btn-primary" onclick="document.getElementById('ov-aviso').style.display='none'">Entendi</button></div>
+  </div>
+</div>
+
+<!-- SENHA -->
+<div id="ov-senha" class="overlay">
+  <div class="modal">
+    <div style="font-size:40px;margin-bottom:10px">🔐</div>
+    <h2>Acesso Restrito</h2>
+    <p>Sistema de Análise de Suprimentos®<br>Wendell França</p>
+    <input type="password" id="inp-senha" placeholder="Digite a senha…" onkeydown="if(event.key==='Enter')verificarSenha()">
+    <button class="btn btn-primary" style="width:100%;padding:10px" onclick="verificarSenha()">Entrar</button>
+    <p id="msg-senha" style="color:#ef4444;font-size:12px;margin-top:10px;min-height:18px"></p>
+  </div>
+</div>
+
+<header>
+  <span style="font-size:26px">📊</span>
+  <div><h1>Sistema de Análise de Suprimentos®</h1><small>Desenvolvido por Wendell França®</small></div>
+</header>
+
+<div id="controls">
+  <label id="btn-carr" class="btn btn-primary" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px" for="file-input">
+    📂 Carregar Planilha
+  </label>
+  <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none" onchange="carregarPlanilha(this)">
+  <button class="btn btn-success" id="btn-graf" disabled onclick="gerarGraficos()">📈 Gerar Gráficos</button>
+  <div class="cg"><label>🌎 Regional:</label><select id="s-reg"><option>Todas as regionais</option></select></div>
+  <div class="cg"><label>📦 Pacote:</label><select id="s-pac"><option>Todos os pacotes</option></select></div>
+  <div class="cg"><label>📋 Conta:</label><select id="s-con"><option>Todas as contas</option></select></div>
+  <div class="cg"><label>🏪 Loja:</label><select id="s-loj"><option>Todas as lojas</option><option>Mesmas Lojas</option></select></div>
+  <div class="cg"><label>📅 Mês:</label><select id="s-mes"><option>Todos os meses</option></select></div>
+  <div class="cg"><label>📊 Ajuste (%):</label><input type="number" id="s-pct" value="0" style="width:68px"></div>
+  <div class="cg" id="cg-modo" style="display:none;border-left:1px solid #e2e8f0;padding-left:10px;margin-left:4px">
+    <label style="font-weight:600;font-size:11px;color:#475569">⚡ Modo:</label>
+    <div class="modo-toggle">
+      <button id="btn-modo-fin" class="modo-btn active" onclick="setModo('financeiro')">💰 Financeiro</button>
+      <button id="btn-modo-con" class="modo-btn consumo" onclick="setModo('consumo')">⚡ Consumo</button>
+    </div>
+  </div>
+  <button class="btn btn-info" id="btn-exp-xlsx" style="display:none" onclick="exportarDetalhamentoXLSX()">📥 Exportar Excel</button>
+</div>
+
+<div id="tabs">
+  <div class="tab active" onclick="showTab('graficos',this)">📊 Gráficos</div>
+  <div class="tab" onclick="showTab('indicadores',this)">🎯 Indicadores</div>
+  <div class="tab" onclick="showTab('detalhamento',this)">🔧 Detalhamento</div>
+  <div class="tab" onclick="showTab('dispersao',this)">📈 Dispersão</div>
+  <div class="tab" onclick="showTab('benchmark',this)">🏆 Benchmark</div>
+  <div class="tab" onclick="showTab('tendencia',this)">📊 Tendência</div>
+  <div class="tab" onclick="showTab('yoy',this)">📆 YoY Mensal</div>
+  <div class="tab" onclick="showTab('pareto',this)">📉 Pareto</div>
+  <div class="tab" onclick="showTab('heatmap',this)">🌡️ Mapa de Calor</div>
+  <div class="tab" onclick="showTab('anomalias',this)">🚨 Anomalias</div>
+  <div class="tab" onclick="showTab('eficiencia',this)">⚡ Eficiência</div>
+</div>
+
+<div id="content">
+
+  <!-- GRÁFICOS -->
+  <div id="panel-graficos" class="panel active">
+    <div class="chart-grid" id="chart-grid">
+      <div class="chart-card" style="grid-column:1/-1">
+        <div class="empty"><div class="icon">📂</div><p>Carregue uma planilha e clique em <strong>Gerar Gráficos</strong></p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INDICADORES -->
+  <div id="panel-indicadores" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="calcularIndicadores()">🔄 Gerar Indicadores</button>
+    </div>
+    <div id="kpi-content"><div class="empty"><div class="icon">🎯</div><p>Clique em <strong>Gerar Indicadores</strong></p></div></div>
+  </div>
+
+  <!-- DETALHAMENTO -->
+  <div id="panel-detalhamento" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="calcularDetalhamento()">🔄 Calcular por Loja</button>
+      <button class="btn btn-info" id="btn-esc" disabled onclick="escalonarProposta2027()">📅 Escalonar 2027</button>
+      <button class="btn btn-info" id="btn-esc-exp" disabled onclick="exportarEscalonamentoXLSX()">📥 Exportar Escalonamento</button>
+    </div>
+    <div id="det-content"><div class="empty"><div class="icon">🔧</div><p>Clique em <strong>Calcular por Loja</strong></p></div></div>
+    <div id="esc-content" style="display:none;margin-top:14px"></div>
+  </div>
+
+  <!-- DISPERSÃO -->
+  <div id="panel-dispersao" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="gerarDispersao()">🔄 Gerar Dispersão</button>
+    </div>
+    <div id="disp-div" style="min-height:460px">
+      <div class="empty"><div class="icon">📈</div><p>Clique em <strong>Gerar Dispersão</strong></p></div>
+    </div>
+  </div>
+
+  <!-- BENCHMARK -->
+  <div id="panel-benchmark" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="gerarBenchmark()">🔄 Gerar Benchmark</button>
+    </div>
+    <div id="bench-info" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700;color:#ea580c;font-size:13px"></div>
+    <div id="bench-div" style="min-height:460px">
+      <div class="empty"><div class="icon">🏆</div><p>Clique em <strong>Gerar Benchmark</strong></p></div>
+    </div>
+  </div>
+
+  <!-- TENDÊNCIA -->
+  <div id="panel-tendencia" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="gerarTendencia()">🔄 Gerar Tendência</button>
+    </div>
+    <div id="tend-div" style="min-height:460px">
+      <div class="empty"><div class="icon">📊</div><p>Clique em <strong>Gerar Tendência</strong></p></div>
+    </div>
+  </div>
+
+  <!-- YoY -->
+  <div id="panel-yoy" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="gerarYoY()">🔄 Gerar YoY</button>
+    </div>
+    <div id="yoy-div" style="min-height:440px">
+      <div class="empty"><div class="icon">📆</div><p>Clique em <strong>Gerar YoY</strong></p></div>
+    </div>
+  </div>
+
+  <!-- PARETO -->
+  <div id="panel-pareto" class="panel">
+    <div class="adv-action">
+      <div class="cg"><label>Por:</label>
+        <div class="radio-g">
+          <label><input type="radio" name="pdim" value="Conta" checked> Conta</label>
+          <label><input type="radio" name="pdim" value="Loja"> Loja</label>
+        </div>
+      </div>
+      <div class="cg"><label>Meta %:</label><input type="number" id="p-pct" value="80" style="width:60px"></div>
+      <button class="btn btn-success" onclick="gerarPareto()">🔍 Gerar Pareto</button>
+    </div>
+    <div id="par-div" style="min-height:500px">
+      <div class="empty"><div class="icon">📉</div><p>Clique em <strong>Gerar Pareto</strong></p></div>
+    </div>
+  </div>
+
+  <!-- MAPA DE CALOR -->
+  <div id="panel-heatmap" class="panel">
+    <div class="adv-action">
+      <div class="cg"><label>Ano:</label><select id="hm-ano"><option>2024</option><option>2025</option><option selected>2026</option></select></div>
+      <button class="btn btn-success" onclick="gerarHeatmap()">🌡️ Gerar Mapa de Calor</button>
+    </div>
+    <div id="hm-div" style="min-height:460px">
+      <div class="empty"><div class="icon">🌡️</div><p>Clique em <strong>Gerar Mapa de Calor</strong></p></div>
+    </div>
+  </div>
+
+  <!-- ANOMALIAS -->
+  <div id="panel-anomalias" class="panel">
+    <div class="adv-action">
+      <div class="cg"><label>Sensibilidade (σ):</label>
+        <select id="an-sigma">
+          <option value="1.5">1.5σ — Alta</option>
+          <option value="2" selected>2.0σ — Média</option>
+          <option value="2.5">2.5σ — Baixa</option>
+          <option value="3">3.0σ — Muito Baixa</option>
+        </select>
+      </div>
+      <button class="btn btn-success" onclick="gerarAnomalias()">🚨 Detectar Anomalias</button>
+    </div>
+    <div id="an-info" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700;color:#dc2626;font-size:13px"></div>
+    <div id="an-div" style="min-height:490px">
+      <div class="empty"><div class="icon">🚨</div><p>Clique em <strong>Detectar Anomalias</strong></p></div>
+    </div>
+    <div id="an-table" style="margin-top:12px"></div>
+  </div>
+
+  <!-- EFICIÊNCIA -->
+  <div id="panel-eficiencia" class="panel">
+    <div class="adv-action">
+      <button class="btn btn-success" onclick="gerarEficiencia()">⚡ Gerar Análise de Eficiência</button>
+    </div>
+    <div id="ef-kpi" style="display:none;margin-bottom:12px">
+      <div class="kpi-grid" id="ef-kpi-grid"></div>
+    </div>
+    <div class="chart-grid" id="ef-grid">
+      <div class="chart-card" style="grid-column:1/-1">
+        <div class="empty"><div class="icon">⚡</div><p>Selecione uma conta com consumo e clique em <strong>Gerar Análise de Eficiência</strong></p></div>
+      </div>
+    </div>
+    <div id="ef-aviso" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#92400e"></div>
+  </div>
+
+</div>
+
+<div id="status-bar">
+  <span><span id="status-dot"></span><span id="status-txt">🔄 Pronto — carregue uma planilha .xlsx para começar</span></span>
+  <span style="color:#94a3b8">© 2025 Wendell França® — Sistema de Análise de Suprimentos</span>
+</div>
+
+<script>
+// ─── ESTADO GLOBAL ────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+let DADOS = [];           // array de objetos (linhas da planilha)
+let modo = 'financeiro';  // 'financeiro' | 'consumo'
+let _todasContas = [];
+let _pacoteContas = {};
+let tabelaDet = [];
+let tabelaEsc = [];
+
+const MESES_NOMES = {1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',
+                     7:'Julho',8:'Agosto',9:'Setembro',10:'Outubro',11:'Novembro',12:'Dezembro'};
+const MESES_ABR   = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
+                     7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'};
+
+// ─── UTILITÁRIOS ──────────────────────────────────────────────────────────────
+function setStatus(msg, ok=true){
+  $('status-txt').textContent = msg;
+  $('status-dot').style.background = ok ? '#10b981' : '#ef4444';
+}
+
+function loading(id, msg='Processando…'){
+  $(id).innerHTML = `<div class="empty"><div class="icon"><span class="spinner"></span></div><p style="margin-top:12px">${msg}</p></div>`;
+}
+
+function fmtAbrev(v, sinal=false){
+  const abs = Math.abs(v);
+  const pfx = sinal ? (v > 0 ? '+' : v < 0 ? '-' : '') : '';
+  if(abs >= 1e6) return pfx + (Math.abs(v)/1e6).toFixed(1).replace('.',',') + 'M';
+  if(abs >= 1e3) return pfx + (Math.abs(v)/1e3).toFixed(1).replace('.',',') + 'K';
+  return pfx + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+}
+
+function fmtBRL(v){ return 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+
+function cols(m){
+  if(m === 'consumo') return {
+    real:'Consumo Realizado', orc:'Consumo Orçado', desvio:'Desvio Consumo',
+    lblR:'Cons. Realizado', lblO:'Cons. Orçado', pfx:'', sufx:''
+  };
+  return {
+    real:'Realizado', orc:'Orçado', desvio:'Desvio',
+    lblR:'Realizado', lblO:'Orçado', pfx:'R$ ', sufx:''
+  };
+}
+
+function fmtVal(v, m='financeiro', unidade=''){
+  if(m === 'consumo'){
+    const s = Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+    return unidade ? s + ' ' + unidade : s;
+  }
+  return fmtBRL(v);
+}
+
+function detectarUnidade(conta){
+  if(conta && conta !== 'Todas as contas'){
+    const n = conta.toLowerCase();
+    if(['gas','gnv','m3'].some(x=>n.includes(x))) return 'm³';
+    if(['energia','eletrica','kwh'].some(x=>n.includes(x))) return 'kWh';
+  }
+  // tenta pela coluna Tarifa
+  const tarifas = [...new Set(DADOS.map(r=>r['Tarifa']).filter(Boolean).map(t=>String(t).toLowerCase()))];
+  for(const t of tarifas){
+    if((t.includes('m') && (t.includes('3')||t.includes('gas')))) return 'm³';
+    if(t.includes('kwh')||t.includes('energia')) return 'kWh';
+  }
+  return '';
+}
+
+// ─── FILTROS ──────────────────────────────────────────────────────────────────
+function aplicarFiltros(rows, regional, conta, loja, pacote){
+  return rows.filter(r => {
+    if(regional && regional !== 'Todas as regionais' && r['Regional'] !== regional) return false;
+    if(conta && conta !== 'Todas as contas' && r['Descrição Conta'] !== conta) return false;
+    if(loja && loja !== 'Todas as lojas' && loja !== ''){
+      if(loja === 'Mesmas Lojas'){
+        // filtro mesmas lojas: lojas com ≥11 meses nos últimos 12 meses
+        // aplicado após seleção base - passamos isso como pré-computado
+      } else {
+        if(String(r['Nº Loja']) !== loja) return false;
+      }
+    }
+    if(pacote && pacote !== 'Todos os pacotes' && r['Pacote'] !== pacote) return false;
+    return true;
+  });
+}
+
+function getMesmasLojas(rows){
+  const datas = rows.map(r=>r._date).filter(Boolean);
+  if(!datas.length) return new Set();
+  const maxD = new Date(Math.max(...datas));
+  const minD = new Date(maxD); minD.setMonth(minD.getMonth()-11);
+  const dentro = rows.filter(r=>r._date >= minD && r._date <= maxD);
+  // contar períodos únicos por loja
+  const lojaPerios = {};
+  dentro.forEach(r=>{
+    const k = String(r['Nº Loja']);
+    const p = r._date.getFullYear()*100+r._date.getMonth();
+    if(!lojaPerios[k]) lojaPerios[k] = new Set();
+    lojaPerios[k].add(p);
+  });
+  return new Set(Object.entries(lojaPerios).filter(([,s])=>s.size>=11).map(([k])=>k));
+}
+
+function filtrar(customLoja=null){
+  const regional = $('s-reg').value;
+  const conta = $('s-con').value;
+  const loja = customLoja !== null ? customLoja : $('s-loj').value;
+  const pacote = $('s-pac').value;
+  let rows = aplicarFiltros(DADOS.filter(r=>!(r['Regional']||'').toLowerCase().includes('adm')), regional, conta, loja, pacote);
+  if(loja === 'Mesmas Lojas'){
+    const ok = getMesmasLojas(rows);
+    rows = rows.filter(r=>ok.has(String(r['Nº Loja'])));
+  }
+  return rows;
+}
+
+// ─── SENHA ────────────────────────────────────────────────────────────────────
+function verificarSenha(){
+  const s = $('inp-senha').value;
+  if(s === '@#7263Wf'){
+    $('ov-senha').style.display = 'none';
+    setTimeout(()=>{ $('ov-aviso').style.display='flex'; }, 600);
+  } else {
+    $('msg-senha').textContent = '❌ Senha incorreta!';
+    $('inp-senha').style.borderColor = '#ef4444';
+    setTimeout(()=>{ $('inp-senha').style.borderColor=''; }, 1500);
+  }
+}
+
+// ─── ABA ─────────────────────────────────────────────────────────────────────
+function showTab(id, el){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  $('panel-'+id).classList.add('active');
+  el.classList.add('active');
+  setTimeout(()=>{
+    document.querySelectorAll('.js-plotly-plot').forEach(p=>Plotly.Plots.resize(p));
+  }, 60);
+}
+
+// ─── PLOTLY CONFIG (lazy — Plotly.Icons só existe após a lib carregar) ─────────
+function getPlotlyCfg(){
+  return {
+    displaylogo:false, responsive:true, scrollZoom:false, doubleClick:false,
+    modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','select2d','lasso2d'],
+    modeBarButtonsToAdd:[{
+      name:'Salvar como PNG', icon:Plotly.Icons.camera,
+      click(gd){
+        const t = (gd.layout&&gd.layout.title&&gd.layout.title.text)||'grafico';
+        Plotly.downloadImage(gd,{format:'png',filename:t,scale:2});
+      }
+    }]
+  };
+}
+
+function renderPlotly(divId, fig){
+  $(divId).innerHTML = '';
+  if(!fig.layout.font) fig.layout.font = {};
+  fig.layout.font.family = "'Segoe UI',system-ui,sans-serif";
+  fig.layout.dragmode = false;
+  fig.layout.xaxis = Object.assign({},fig.layout.xaxis||{},{fixedrange:true});
+  fig.layout.yaxis = Object.assign({},fig.layout.yaxis||{},{fixedrange:true});
+  if(fig.layout.yaxis2) fig.layout.yaxis2 = Object.assign({},fig.layout.yaxis2,{fixedrange:true});
+  Plotly.newPlot(divId, fig.data, fig.layout, getPlotlyCfg());
+}
+
+function baseLayout(title, yaxisTitle='R$', height=380){
+  return {
+    title:{text:title,font:{size:14,color:'#2c3e50',family:'Segoe UI'},x:0.5,xanchor:'center'},
+    paper_bgcolor:'white', plot_bgcolor:'#fafbfc',
+    font:{family:'Segoe UI',size:11,color:'#2c3e50'},
+    height, margin:{l:60,r:20,t:55,b:60},
+    legend:{orientation:'h',yanchor:'bottom',y:1.02,xanchor:'right',x:1,
+            bgcolor:'rgba(255,255,255,0.8)',bordercolor:'#dee2e6',borderwidth:1},
+    xaxis:{showgrid:false,tickangle:-30,tickfont:{size:10}},
+    yaxis:{title:yaxisTitle,gridcolor:'#ecf0f1',gridwidth:1,tickfont:{size:10},zeroline:false},
+    hovermode:'x unified',
+    hoverlabel:{bgcolor:'white',bordercolor:'#dee2e6',font:{size:12,color:'#2c3e50'}},
+  };
+}
+
+// ─── CARREGAR PLANILHA ────────────────────────────────────────────────────────
+function carregarPlanilha(input){
+  const file = input.files[0];
+  if(!file) return;
+  setStatus('⏳ Lendo planilha…');
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, {defval:null});
+      if(!raw.length){ setStatus('❌ Planilha vazia.',false); return; }
+
+      // Normaliza colunas
+      const rows = raw.map(r=>{
+        const obj = {};
+        Object.keys(r).forEach(k=>{ obj[k.trim()] = r[k]; });
+        return obj;
+      });
+
+      // Detecta coluna de data
+      const colData = Object.keys(rows[0]).find(k=>k.trim().toLowerCase()==='data');
+      if(!colData){ setStatus('❌ Coluna "Data" não encontrada.',false); return; }
+      if(!rows[0]['Realizado']){ setStatus('❌ Coluna "Realizado" não encontrada.',false); return; }
+
+      // Parseia datas
+      rows.forEach(r=>{
+        let d = r[colData];
+        if(d instanceof Date){ r._date = d; }
+        else if(typeof d === 'number'){ r._date = new Date((d-25569)*86400000); }
+        else if(typeof d === 'string'){ r._date = new Date(d); }
+        else { r._date = null; }
+
+        if(r._date && !isNaN(r._date)){
+          const mAbr = r._date.toLocaleString('pt-BR',{month:'short'}).replace('.','').replace(/^\w/,c=>c.toUpperCase());
+          r['Mês Abrev'] = mAbr + ' ' + String(r._date.getFullYear()).slice(-2);
+          r['_ano'] = r._date.getFullYear();
+          r['_mes'] = r._date.getMonth()+1;
+        } else {
+          r._date = null;
+        }
+        // Garante números
+        ['Realizado','Orçado','Desvio','Consumo Realizado','Consumo Orçado'].forEach(c=>{
+          if(r[c] != null) r[c] = parseFloat(r[c])||0;
+        });
+      });
+
+      DADOS = rows.filter(r=>r._date);
+      if(!DADOS.length){ setStatus('❌ Nenhum dado com data válida.',false); return; }
+
+      // Popula filtros
+      const contas  = [...new Set(DADOS.map(r=>r['Descrição Conta']).filter(Boolean))].sort();
+      const lojas   = [...new Set(DADOS.map(r=>String(r['Nº Loja'])).filter(Boolean))].sort();
+      const pacotes = [...new Set(DADOS.map(r=>r['Pacote']).filter(Boolean))].sort();
+      const regs    = [...new Set(DADOS.map(r=>r['Regional']).filter(Boolean))].sort();
+      const anos    = [...new Set(DADOS.map(r=>r['_ano']))];
+      const maxAno  = Math.max(...anos);
+      const meses26 = [...new Set(DADOS.filter(r=>r['_ano']===maxAno).map(r=>r['Mês Abrev']))].sort((a,b)=>{
+        const parse = s=>{ const p=s.split(' '); return new Date(`${p[1].length===2?'20'+p[1]:p[1]}-${padMes(p[0])}-01`); };
+        return parse(a)-parse(b);
+      });
+
+      _todasContas = contas;
+      _pacoteContas = {};
+      if(pacotes.length){
+        pacotes.forEach(p=>{
+          _pacoteContas[p] = [...new Set(DADOS.filter(r=>r['Pacote']===p).map(r=>r['Descrição Conta']).filter(Boolean))].sort();
+        });
+      }
+
+      $('s-con').innerHTML = '<option>Todas as contas</option>'+contas.map(c=>`<option>${escHtml(c)}</option>`).join('');
+      $('s-loj').innerHTML = '<option>Todas as lojas</option><option>Mesmas Lojas</option>'+lojas.map(l=>`<option>${escHtml(l)}</option>`).join('');
+      $('s-pac').innerHTML = '<option>Todos os pacotes</option>'+pacotes.map(p=>`<option>${escHtml(p)}</option>`).join('');
+      $('s-reg').innerHTML = '<option>Todas as regionais</option>'+regs.map(v=>`<option>${escHtml(v)}</option>`).join('');
+      $('s-mes').innerHTML = '<option>Todos os meses</option>'+meses26.map(m=>`<option>${escHtml(m)}</option>`).join('');
+      $('s-pac').onchange  = ()=>filtrarContasPorPacote();
+
+      const temConsumo = DADOS.some(r=>r['Consumo Realizado']!=null);
+      if(temConsumo) $('cg-modo').style.display='';
+
+      $('btn-graf').disabled = false;
+      setStatus(`✅ Planilha carregada — ${DADOS.length.toLocaleString('pt-BR')} linhas`);
+    }catch(err){
+      setStatus('❌ Erro ao ler planilha: '+err.message, false);
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function padMes(abr){
+  const map={jan:'01',fev:'02','mar':'03',abr:'04',mai:'05',jun:'06',jul:'07',ago:'08',set:'09',out:'10',nov:'11',dez:'12'};
+  return map[abr.toLowerCase()]||'01';
+}
+
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function filtrarContasPorPacote(){
+  const pac = $('s-pac').value;
+  const contas = (pac && pac !== 'Todos os pacotes' && _pacoteContas[pac]) ? _pacoteContas[pac] : _todasContas;
+  const sel = $('s-con'); const prev = sel.value;
+  sel.innerHTML = '<option>Todas as contas</option>'+contas.map(c=>`<option>${escHtml(c)}</option>`).join('');
+  if(contas.includes(prev)) sel.value = prev;
+}
+
+// ─── MODO ─────────────────────────────────────────────────────────────────────
+function setModo(m){
+  modo = m;
+  const isC = m==='consumo';
+  $('btn-modo-fin').classList.toggle('active',!isC);
+  $('btn-modo-con').classList.toggle('active',isC);
+  setStatus(`✅ Modo: ${isC?'⚡ Consumo':'💰 Financeiro'}`);
+}
+
+// ─── AGREGAÇÃO HELPERS ────────────────────────────────────────────────────────
+function agruparPorMes(rows, ano, colReal, colOrc){
+  const byMes = {};
+  rows.filter(r=>r['_ano']===ano).forEach(r=>{
+    const k = r['Mês Abrev'];
+    if(!byMes[k]){ byMes[k] = {real:0,orc:0,ordem:new Date(r._date.getFullYear(),r._date.getMonth(),1).getTime()}; }
+    byMes[k].real += r[colReal]||0;
+    if(colOrc && r[colOrc]!=null) byMes[k].orc += r[colOrc]||0;
+  });
+  return Object.entries(byMes).sort((a,b)=>a[1].ordem-b[1].ordem).map(([k,v])=>({mes:k,...v}));
+}
+
+function sumByMes(rows, ano, col){
+  const map = {};
+  rows.filter(r=>r['_ano']===ano).forEach(r=>{ const m=r['_mes']; map[m]=(map[m]||0)+(r[col]||0); });
+  return map;
+}
+
+function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : NaN; }
+function std(arr){
+  if(arr.length<2) return 0;
+  const m=mean(arr); return Math.sqrt(arr.reduce((s,x)=>s+(x-m)**2,0)/arr.length);
+}
+function nansum(arr){ return arr.filter(v=>v!=null&&!isNaN(v)).reduce((a,b)=>a+b,0); }
+
+// ─── GRÁFICOS PRINCIPAIS ──────────────────────────────────────────────────────
+function gerarGraficos(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  const grid = $('chart-grid');
+  grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><span class="spinner"></span><p style="margin-top:12px">Gerando gráficos…</p></div></div>';
+  setStatus('📊 Gerando gráficos…');
+  setTimeout(()=>{
+    try{ _gerarGraficos(grid); }
+    catch(e){ grid.innerHTML=`<div class="chart-card" style="grid-column:1/-1;padding:20px;color:#ef4444">${e.message}</div>`; setStatus('❌ '+e.message,false); console.error(e); }
+  },30);
+}
+
+function _gerarGraficos(grid){
+  const c = cols(modo);
+  const colReal = c.real; const colOrc = c.orc;
+  const rows = filtrar();
+  const anos = [2024,2025,2026];
+  const graficos = {};
+
+  // Helper: fig evolução anual
+  function figEvolucao(agrupado, ano, corReal, titulo){
+    const meses = agrupado.map(a=>a.mes);
+    const real  = agrupado.map(a=>a.real);
+    const orc   = agrupado.map(a=>a.orc);
+    const temOrc = orc.some(v=>v>0);
+    const total = real.reduce((a,b)=>a+b,0);
+    const mediaV = mean(real)||0;
+    const orcTotal = temOrc ? orc.reduce((a,b)=>a+b,0) : 0;
+    const desvio = temOrc ? total - orcTotal : 0;
+    const traces = [];
+    if(temOrc){
+      traces.push({type:'scatter',x:[...meses,...[...meses].reverse()],
+        y:[...real,...[...real].reverse()],fill:'toself',fillcolor:'rgba(41,128,185,0.06)',
+        line:{color:'rgba(0,0,0,0)'},showlegend:false,hoverinfo:'skip'});
+      traces.push(serieLinha(meses,orc,`${c.lblO} ${ano}`,'#c0392b','dot','square',orc.map(v=>fmtAbrev(v))));
+    }
+    traces.push(serieLinha(meses,real,`${c.lblR} ${ano}`,corReal,'solid','circle',real.map(v=>fmtAbrev(v))));
+    const todosVals=[...real,...(temOrc?orc:[])].filter(v=>!isNaN(v));
+    let yMin=0,yMax=1;
+    if(todosVals.length){ const mn=Math.min(...todosVals),mx=Math.max(...todosVals),sp=mx!==mn?mx-mn:mx*0.1||1; yMin=mn-sp*.3; yMax=mx+sp*.3; }
+    let resumo = (orcTotal?`${c.lblO}: ${fmtAbrev(orcTotal)} | `:'') + `Média: ${fmtAbrev(mediaV)} | ${c.lblR}: ${fmtAbrev(total)}` + (desvio?` | Desvio: ${fmtAbrev(desvio,true)}`:'');
+    const layout = baseLayout(titulo, getEixoY());
+    layout.annotations=[{text:resumo,xref:'paper',yref:'paper',x:0.01,y:0.99,xanchor:'left',yanchor:'top',showarrow:false,font:{size:10,color:'#2c3e50'},bgcolor:'#ecf0f1',bordercolor:corReal,borderwidth:1,borderpad:5,opacity:.9}];
+    layout.yaxis.tickformat=',.0f'; layout.yaxis.range=[yMin,yMax];
+    return {data:traces,layout};
+  }
+
+  // 2024
+  const ag24 = agruparPorMes(rows,2024,colReal,colOrc);
+  if(ag24.length) graficos.g2024 = figEvolucao(ag24,2024,'#2980b9','Evolução Mensal 2024');
+
+  // 2025
+  const ag25 = agruparPorMes(rows,2025,colReal,colOrc);
+  if(ag25.length) graficos.g2025 = figEvolucao(ag25,2025,'#e67e22','Evolução Mensal 2025');
+
+  // 2026 com previsão
+  const r24map = sumByMes(rows,2024,colReal);
+  const r25map = sumByMes(rows,2025,colReal);
+  const r26map = sumByMes(rows,2026,colReal);
+  const media26 = r26map && Object.values(r26map).length ? mean(Object.values(r26map)) : NaN;
+  const mesesAbrev26 = [1,2,3,4,5,6,7,8,9,10,11,12].map(m=>MESES_ABR[m]+' 26');
+  const realizadoCompleto=[]; const previsaoFlags=[];
+  for(let m=1;m<=12;m++){
+    if(r26map[m]!=null){ realizadoCompleto.push(r26map[m]); previsaoFlags.push(false); }
+    else {
+      const vals=[r24map[m],r25map[m],!isNaN(media26)?media26:null].filter(v=>v!=null);
+      const prev=vals.length ? (Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4 : NaN;
+      realizadoCompleto.push(isNaN(prev)?null:prev); previsaoFlags.push(true);
+    }
+  }
+  const realX=[],realY=[],prevX=[],prevY=[];
+  mesesAbrev26.forEach((x,i)=>{ if(!previsaoFlags[i]){realX.push(x);realY.push(realizadoCompleto[i]);}else{prevX.push(x);prevY.push(realizadoCompleto[i]);} });
+  const tr26=[];
+  // Orçado 2026
+  const orc26map = sumByMes(rows,2026,colOrc);
+  const orc26list = [1,2,3,4,5,6,7,8,9,10,11,12].map(m=>orc26map[m]||null);
+  if(orc26list.some(v=>v)){
+    tr26.push({type:'scatter',x:mesesAbrev26,y:orc26list,name:`${c.lblO} 2026`,mode:'lines+markers+text',
+      line:{color:'#c0392b',width:2,dash:'dot'},marker:{color:'white',size:7,symbol:'square',line:{color:'#c0392b',width:2}},
+      text:orc26list.map(v=>v?fmtAbrev(v):''),textposition:'bottom center',textfont:{size:9,color:'#c0392b'},
+      hovertemplate:`<b>${c.lblO} 2026</b><br>%{x}<br>${c.pfx}%{y:,.0f}<extra></extra>`});
+  }
+  if(realX.length) tr26.push(serieLinha(realX,realY,`${c.lblR} 2026`,'#27ae60','solid','circle',realY.map(v=>fmtAbrev(v))));
+  if(prevX.length) tr26.push({type:'scatter',x:prevX,y:prevY,name:'Previsto 2026',mode:'lines+markers+text',
+    line:{color:'#d35400',width:2,dash:'dashdot'},marker:{color:'white',size:8,symbol:'diamond',line:{color:'#d35400',width:2}},
+    text:prevY.map(v=>v?fmtAbrev(v):''),textposition:'top center',textfont:{size:9,color:'#d35400'},
+    hovertemplate:`<b>Previsto 2026</b><br>%{x}<br>${c.pfx}%{y:,.0f}<extra></extra>`});
+  if(tr26.length){
+    const layout26=baseLayout('2026 — Realizado + Previsão',getEixoY());
+    graficos.g2026={data:tr26,layout:layout26};
+  }
+
+  // 2027 — orçamento/meta proposto (scatter+line+fill, igual ao Python)
+  const pct = parseFloat($('s-pct').value)||0;
+  const mesesAbrev27=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>MESES_ABR[m]+' 27');
+  const base27=[];
+  for(let i=0;i<12;i++){
+    const m=i+1;
+    const rv26=realizadoCompleto[i];
+    const vals=[r24map[m],r25map[m]].filter(v=>v!=null&&!isNaN(v));
+    if(rv26!=null&&!isNaN(rv26)){ vals.push(rv26); vals.push(rv26); } // peso duplo como no Python
+    base27.push(vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:NaN);
+  }
+  const orc27=base27.map(v=>isNaN(v)?null:v*(1+(pct/100)));
+  if(orc27.some(v=>v!=null)){
+    const titulo27=modo==='consumo'?'Meta Proposta 2027':`Orçamento Proposto 2027`;
+    const total27=nansum(orc27.filter(v=>v!=null));
+    const media27=mean(orc27.filter(v=>v!=null));
+    const tr27=[{
+      type:'scatter', x:mesesAbrev27, y:orc27, name:titulo27,
+      mode:'lines+markers+text',
+      line:{color:'#8e44ad',width:2.5},
+      marker:{color:'white',size:8,symbol:'circle',line:{color:'#8e44ad',width:2}},
+      fill:'tozeroy', fillcolor:'rgba(142,68,173,0.07)',
+      text:orc27.map(v=>v!=null?fmtAbrev(v):''), textposition:'top center',
+      textfont:{size:9,color:'#8e44ad'},
+      hovertemplate:`<b>${titulo27}</b><br>%{x}<br>${c.pfx}%{y:,.0f}<extra></extra>`
+    }];
+    const layout27=baseLayout(`${titulo27}${pct!==0?` (Ajuste: ${pct>=0?'+':''}${pct}%)`:''}`,getEixoY());
+    layout27.annotations=[{text:`Total: ${fmtAbrev(total27)} | Média: ${fmtAbrev(media27)}`,xref:'paper',yref:'paper',x:0.01,y:0.99,xanchor:'left',yanchor:'top',showarrow:false,font:{size:10,color:'#2c3e50'},bgcolor:'#ecf0f1',bordercolor:'#8e44ad',borderwidth:1,borderpad:5,opacity:.9}];
+    const vals27v=orc27.filter(v=>v!=null);
+    if(vals27v.length){ const mn=Math.min(...vals27v),mx=Math.max(...vals27v),sp=mx!==mn?mx-mn:mx*.1||1; layout27.yaxis={...layout27.yaxis,range:[mn-sp*.3,mx+sp*.3]}; }
+    layout27.xaxis={...layout27.xaxis,range:[-0.5,mesesAbrev27.length-0.5]};
+    graficos.g2027={data:tr27,layout:layout27};
+  }
+
+  grid.innerHTML='';
+  const nomes={g2024:'2024',g2025:'2025',g2026:'2026 — Real + Previsão',g2027:'2027 — Orçamento'};
+  let count=0;
+  for(const [k,fig] of Object.entries(graficos)){
+    const div=document.createElement('div'); div.className='chart-card';
+    const inner=document.createElement('div'); inner.id='plt-'+k; inner.style.minHeight='370px';
+    div.appendChild(inner); grid.appendChild(div); count++;
+    renderPlotly('plt-'+k,fig);
+  }
+  if(!count){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1;padding:20px;color:#ef4444">Sem dados para os filtros selecionados.</div>'; }
+  setStatus('✅ Gráficos gerados!');
+}
+
+function serieLinha(x,y,nome,cor,dash='solid',symbol='circle',texto=null){
+  return {type:'scatter',mode:'lines+markers'+(texto?'+text':''),x,y,name:nome,
+    line:{color:cor,width:2.5,dash},
+    marker:{color:'white',size:8,symbol,line:{color:cor,width:2}},
+    text:texto,textposition:'top center',textfont:{size:9,color:cor},
+    hovertemplate:`<b>${nome}</b><br>%{x}<br>%{y:,.0f}<extra></extra>`};
+}
+
+function getEixoY(){
+  if(modo==='consumo'){
+    const unidade=detectarUnidade($('s-con').value);
+    return unidade?`Consumo (${unidade})`:'Consumo';
+  }
+  return 'R$';
+}
+
+// ─── INDICADORES ──────────────────────────────────────────────────────────────
+function calcularIndicadores(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('kpi-content','Calculando indicadores…');
+  setTimeout(()=>{
+    try{ _calcularIndicadores(); }
+    catch(e){ $('kpi-content').innerHTML=`<p style="color:#ef4444;padding:20px">${e.message}</p>`; console.error(e); }
+  },30);
+}
+
+function _calcularIndicadores(){
+  const c=cols(modo); const colReal=c.real; const colOrc=c.orc;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+
+  function soma(ano){ return rows.filter(r=>r['_ano']===ano).reduce((s,r)=>s+(r[colReal]||0),0); }
+  function somaOrc(ano){ return rows.filter(r=>r['_ano']===ano).reduce((s,r)=>s+(r[colOrc]||0),0); }
+  function cv(ano){
+    const vals=[];
+    const by={};
+    rows.filter(r=>r['_ano']===ano).forEach(r=>{ by[r['_mes']]=(by[r['_mes']]||0)+(r[colReal]||0); });
+    Object.values(by).forEach(v=>vals.push(v));
+    return vals.length ? (std(vals)/mean(vals)*100).toFixed(1)+'%' : 'N/A';
+  }
+  function aderencia(ano){ const r=soma(ano),o=somaOrc(ano); return o?((r/o)*100).toFixed(1)+'%':'N/A'; }
+
+  const t24=soma(2024),t25=soma(2025),t26=soma(2026);
+  const cr25_24=t24?(((t25-t24)/Math.abs(t24))*100).toFixed(1):'N/A';
+  const cr26_25=t25?(((t26-t25)/Math.abs(t25))*100).toFixed(1):'N/A';
+
+  // mesmas lojas crescimento
+  const rowsML=filtrar('Mesmas Lojas');
+  const t26ml=rowsML.filter(r=>r['_ano']===2026).reduce((s,r)=>s+(r[colReal]||0),0);
+  const t25ml=rowsML.filter(r=>r['_ano']===2025).reduce((s,r)=>s+(r[colReal]||0),0);
+  const cr26_25ml=t25ml?(((t26ml-t25ml)/Math.abs(t25ml))*100).toFixed(1):'N/A';
+
+  // tendência anual
+  const meses26={};
+  rows.filter(r=>r['_ano']===2026).forEach(r=>{ meses26[r['_mes']]=(meses26[r['_mes']]||0)+(r[colReal]||0); });
+  const nm=Object.keys(meses26).length;
+  const tendAnual=nm?((t26/nm)*12):0;
+
+  // ajuste sugerido
+  const t27base=[...Array(12)].map((_,i)=>{
+    const m=i+1;
+    const r24m=rows.filter(r=>r['_ano']===2024&&r['_mes']===m).reduce((s,r)=>s+(r[colReal]||0),0);
+    const r25m=rows.filter(r=>r['_ano']===2025&&r['_mes']===m).reduce((s,r)=>s+(r[colReal]||0),0);
+    const r26m=meses26[m]||null;
+    const vals=[r24m,r25m,r26m!=null?r26m:null].filter(v=>v!=null);
+    return vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:0;
+  }).reduce((a,b)=>a+b,0);
+  const pctSug=t27base?Math.max(-10,Math.min(20,((tendAnual-t27base)/t27base*100))):0;
+
+  function cl(v){ return parseFloat(v)>=0?'pos':'neg'; }
+  function sinalStr(v){ return parseFloat(v)>=0?'+'+v:v; }
+  function fmt(v){ return modo==='consumo'?fmtAbrev(v):fmtBRL(v); }
+
+  $('kpi-content').innerHTML=`
+    <div class="section-title">💰 Totais ${c.lblR}</div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-title">2024</div><div class="kpi-value">${fmt(t24)}</div></div>
+      <div class="kpi-card green"><div class="kpi-title">2025</div><div class="kpi-value">${fmt(t25)}</div></div>
+      <div class="kpi-card purple"><div class="kpi-title">2026 (YTD)</div><div class="kpi-value">${fmt(t26)}</div></div>
+    </div>
+    <div class="section-title">📈 Crescimento Ano a Ano</div>
+    <div class="kpi-grid">
+      <div class="kpi-card ${parseFloat(cr25_24)>=0?'red':'green'}"><div class="kpi-title">2025 vs 2024</div><div class="kpi-value ${cl(cr25_24)}">${sinalStr(cr25_24)}%</div></div>
+      <div class="kpi-card ${parseFloat(cr26_25)>=0?'red':'green'}"><div class="kpi-title">2026 vs 2025</div><div class="kpi-value ${cl(cr26_25)}">${sinalStr(cr26_25)}%</div></div>
+      <div class="kpi-card yellow"><div class="kpi-title">2026 vs 2025 (Mesmas Lojas)</div><div class="kpi-value ${cl(cr26_25ml)}">${sinalStr(cr26_25ml)}%</div></div>
+    </div>
+    <div class="section-title">📊 Volatilidade (CV Mensal)</div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-title">CV 2024</div><div class="kpi-value">${cv(2024)}</div></div>
+      <div class="kpi-card"><div class="kpi-title">CV 2025</div><div class="kpi-value">${cv(2025)}</div></div>
+      <div class="kpi-card"><div class="kpi-title">CV 2026 (YTD)</div><div class="kpi-value">${cv(2026)}</div></div>
+    </div>
+    <div class="section-title">🎯 Aderência ao Orçado</div>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-title">Aderência 2024</div><div class="kpi-value">${aderencia(2024)}</div></div>
+      <div class="kpi-card"><div class="kpi-title">Aderência 2025</div><div class="kpi-value">${aderencia(2025)}</div></div>
+      <div class="kpi-card"><div class="kpi-title">Aderência 2026 (YTD)</div><div class="kpi-value">${aderencia(2026)}</div></div>
+    </div>
+    <div class="section-title">💡 Tendência & Recomendação</div>
+    <div class="kpi-grid">
+      <div class="kpi-card purple"><div class="kpi-title">Projeção Anual 2026</div><div class="kpi-value">${fmt(tendAnual)}</div></div>
+      <div class="kpi-card ${pctSug>=0?'red':'green'}">
+        <div class="kpi-title">Ajuste Sugerido para 2027</div>
+        <div class="kpi-value ${pctSug>=0?'pos':'neg'}">${pctSug>=0?'+':''}${pctSug.toFixed(1)}%</div>
+        <div class="kpi-sub" style="margin-top:8px">
+          <button class="btn btn-success" style="font-size:11px;padding:4px 12px" onclick="$('s-pct').value=${pctSug.toFixed(1)};setStatus('✅ Ajuste aplicado!')">✓ Aplicar</button>
+        </div>
+      </div>
+    </div>`;
+  setStatus('✅ Indicadores calculados!');
+}
+
+// ─── DETALHAMENTO ─────────────────────────────────────────────────────────────
+function calcularDetalhamento(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('det-content','Calculando orçamento por loja…');
+  setTimeout(()=>{
+    try{ _calcularDetalhamento(); }
+    catch(e){ $('det-content').innerHTML=`<p style="color:#ef4444;padding:20px">${e.message}</p>`; console.error(e); }
+  },30);
+}
+
+function _calcularDetalhamento(){
+  const c=cols(modo); const colReal=c.real;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+
+  const lojas=[...new Set(rows.map(r=>r['Nº Loja']).filter(v=>v!=null))].sort();
+  const pfx=modo==='consumo'?'':'R$ ';
+  let totalRP=0,totalAV=0;
+  tabelaDet=[];
+
+  lojas.forEach(l=>{
+    const dl=rows.filter(r=>r['Nº Loja']===l);
+    const r24=sumByMes(dl,2024,colReal); const r25=sumByMes(dl,2025,colReal); const r26=sumByMes(dl,2026,colReal);
+    const med26=Object.values(r26).length?mean(Object.values(r26)):0;
+    const rp26=[];
+    for(let m=1;m<=12;m++){
+      if(r26[m]!=null){ rp26.push(r26[m]); }
+      else {
+        const vals=[r24[m],r25[m],!isNaN(med26)?med26:null].filter(v=>v!=null);
+        rp26.push(vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:NaN);
+      }
+    }
+    const t26=nansum(rp26);
+    const b27=[]; for(let i=0;i<12;i++){ const m=i+1; const vals=[r24[m],r25[m]].filter(v=>v!=null); if(!isNaN(rp26[i]))vals.push(rp26[i]); b27.push(vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:NaN); }
+    const bp=nansum(b27);
+    const nm=rp26.filter(v=>!isNaN(v)).length;
+    const tend=nm?(t26/nm)*12:0;
+    const aj=Math.max(-10,Math.min(20,bp?((tend-bp)/bp*100):0));
+    const prop=t26+t26*(aj/100);
+    totalRP+=t26; totalAV+=prop;
+    tabelaDet.push({loja:String(l),
+      real_prev:pfx+t26.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}),
+      media:pfx+med26.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}),
+      ajuste:aj.toFixed(1)+'%',
+      proposta:pfx+prop.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})});
+  });
+  const pctTot=totalRP?((totalAV-totalRP)/totalRP*100):0;
+  tabelaDet.push({loja:'TOTAL',
+    real_prev:pfx+totalRP.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}),
+    media:'',ajuste:pctTot.toFixed(1)+'%',
+    proposta:pfx+totalAV.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})});
+
+  $('btn-esc').disabled=false;
+  let html='<div class="tbl-wrap"><table><thead><tr><th>🏪 Loja</th><th>Real.+Previsto 2026</th><th>Média Real. 2026</th><th>Ajuste Sugerido</th><th>Proposta 2027</th></tr></thead><tbody>';
+  tabelaDet.forEach(row=>{
+    html+=`<tr class="${row.loja==='TOTAL'?'total-row':''}"><td>${escHtml(row.loja)}</td><td>${row.real_prev}</td><td>${row.media}</td><td>${row.ajuste}</td><td>${row.proposta}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+  $('det-content').innerHTML=html;
+  $('btn-exp-xlsx').style.display='';
+  setStatus('✅ Detalhamento calculado!');
+}
+
+// ─── ESCALONAMENTO 2027 ───────────────────────────────────────────────────────
+function escalonarProposta2027(){
+  if(!tabelaDet.length){ alert('Calcule o detalhamento primeiro.'); return; }
+  loading('esc-content','Calculando escalonamento…');
+  setTimeout(()=>{
+    try{ _escalonarProposta2027(); }
+    catch(e){ $('esc-content').innerHTML=`<p style="color:#ef4444;padding:20px">${e.message}</p>`; console.error(e); }
+  },30);
+}
+
+function _escalonarProposta2027(){
+  const c=cols(modo); const colReal=c.real;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+  const unidade=modo==='consumo'?detectarUnidade($('s-con').value)||'':'R$';
+  const pfx=modo==='consumo'?'':'R$ ';
+
+  const lojas=[...new Set(rows.map(r=>r['Nº Loja']).filter(v=>v!=null))].sort();
+  tabelaEsc=[];
+
+  lojas.forEach(l=>{
+    const dl=rows.filter(r=>r['Nº Loja']===l);
+    const r24=sumByMes(dl,2024,colReal); const r25=sumByMes(dl,2025,colReal); const r26=sumByMes(dl,2026,colReal);
+    const med26=Object.values(r26).length?mean(Object.values(r26)):0;
+    const rp26=[];
+    for(let m=1;m<=12;m++){
+      if(r26[m]!=null){ rp26.push(r26[m]); }
+      else { const vals=[r24[m],r25[m],!isNaN(med26)?med26:null].filter(v=>v!=null); rp26.push(vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:NaN); }
+    }
+    const t26=nansum(rp26);
+    const b27=[];
+    for(let i=0;i<12;i++){ const m=i+1; const vals=[r24[m],r25[m]].filter(v=>v!=null); if(!isNaN(rp26[i]))vals.push(rp26[i]); b27.push(vals.length?(Math.min(...vals)+2*mean(vals)+Math.max(...vals))/4:NaN); }
+    const bp=nansum(b27); const nm=rp26.filter(v=>!isNaN(v)).length;
+    const tend=nm?(t26/nm)*12:0; const aj=Math.max(-10,Math.min(20,bp?((tend-bp)/bp*100):0));
+    const prop27=t26+t26*(aj/100);
+
+    // distribuição por mês
+    const pctPorMes={};
+    for(let m=1;m<=12;m++){
+      const v24=r24[m]||0; const v25=r25[m]||0;
+      pctPorMes[m]=(v24>0||v25>0)?(v24+v25)/2:1;
+    }
+    const totalPct=Object.values(pctPorMes).reduce((a,b)=>a+b,0)||1;
+    for(let m=1;m<=12;m++) pctPorMes[m]/=totalPct;
+
+    let acum=0;
+    for(let m=1;m<=12;m++){
+      let val=m<12?prop27*pctPorMes[m]:(prop27-acum);
+      if(m<12) acum+=val;
+      const fmt=pfx+val.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+      tabelaEsc.push({loja:String(l),mes:MESES_NOMES[m],mes_num:m,valor:val,pct:pctPorMes[m]*100,valor_fmt:fmt});
+    }
+  });
+
+  if(!tabelaEsc.length){ $('esc-content').innerHTML='<p style="color:#ef4444;padding:20px">Nenhuma loja encontrada.</p>'; return; }
+
+  // montar tabela pivot
+  const porLoja={};
+  tabelaEsc.forEach(r=>{ if(!porLoja[r.loja])porLoja[r.loja]={}; porLoja[r.loja][r.mes_num]=r; });
+  const lojasOrdenadas=Object.keys(porLoja).sort();
+  const mesesNomesAbrev=Object.values(MESES_NOMES).map(m=>m.substring(0,3));
+
+  let html='<div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff"><th style="padding:10px 12px;text-align:left;font-size:11px">🏪 Loja</th>';
+  mesesNomesAbrev.forEach(m=>{ html+=`<th style="padding:10px 12px;text-align:right;font-size:11px">${m}</th>`; });
+  html+=`<th style="padding:10px 12px;text-align:right;font-size:11px">📊 TOTAL</th></tr></thead><tbody>`;
+
+  lojasOrdenadas.forEach(loja=>{
+    const dadosLoja=porLoja[loja]; let totalLoja=0;
+    html+=`<tr><td style="padding:8px 12px;font-weight:700;color:#374151">Loja ${escHtml(loja)}</td>`;
+    for(let m=1;m<=12;m++){
+      const row=dadosLoja[m]; const valor=row?row.valor:0; totalLoja+=valor;
+      html+=`<td style="padding:8px 12px;text-align:right;font-size:11px;color:#374151">${row?row.valor_fmt:''}</td>`;
+    }
+    const totFmt=(modo==='consumo'?'':`R$ `)+totalLoja.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+    html+=`<td style="padding:8px 12px;text-align:right;font-weight:700;background:#f1f5f9">${totFmt}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+  $('esc-content').innerHTML=html;
+  $('esc-content').style.display='block';
+  $('btn-esc-exp').disabled=false;
+  setStatus(`✅ Escalonamento calculado para ${lojasOrdenadas.length} loja(s)!`);
+}
+
+// ─── DISPERSÃO ────────────────────────────────────────────────────────────────
+function gerarDispersao(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('disp-div','Gerando dispersão…');
+  setTimeout(()=>{
+    try{ _gerarDispersao(); }
+    catch(e){ $('disp-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function filtrarMes(rows,mes){
+  if(!mes||mes==='Todos os meses') return rows;
+  const parts=mes.split(' ');
+  if(parts.length<2) return rows;
+  const abr=parts[0].toLowerCase(); const anoStr=parts[1];
+  const anoNum=anoStr.length===2?2000+parseInt(anoStr):parseInt(anoStr);
+  const mesMap={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+  const mesNum=mesMap[abr];
+  if(!mesNum) return rows;
+  return rows.filter(r=>r['_ano']===anoNum&&r['_mes']===mesNum);
+}
+
+function _gerarDispersao(){
+  const c=cols(modo); const colReal=c.real; const colOrc=c.orc;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+  else rows=rows.filter(r=>r['_ano']===2026);
+
+  if(!rows.length){ $('disp-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados para o filtro selecionado.</p></div>'; return; }
+
+  // agrupa por loja
+  const byLoja={};
+  rows.forEach(r=>{ const l=String(r['Nº Loja']); if(!byLoja[l])byLoja[l]={real:0,orc:0}; byLoja[l].real+=r[colReal]||0; byLoja[l].orc+=r[colOrc]||0; });
+  const lojas=Object.keys(byLoja).sort();
+  const realV=lojas.map(l=>byLoja[l].real);
+  const orcV=lojas.map(l=>byLoja[l].orc);
+  const desvios=orcV.some(v=>v)?lojas.map((l,i)=>byLoja[l].real-byLoja[l].orc):realV;
+
+  // benchmark = menor desvio absoluto
+  const bench=lojas[desvios.reduce((bi,v,i)=>Math.abs(v)<Math.abs(desvios[bi])?i:bi,0)];
+  const cores=lojas.map((l,i)=>l===bench?'#e67e22':(desvios[i]<0?'#27ae60':'#e74c3c'));
+  const texts=lojas.map((l,i)=>`Loja ${l}<br>${c.lblR}: ${modo==='consumo'?fmtAbrev(realV[i]):fmtBRL(realV[i])}<br>Desvio: ${fmtAbrev(desvios[i],true)}`);
+
+  const trace={type:'scatter',x:lojas,y:desvios,mode:'markers+text',
+    marker:{color:cores,size:14,symbol:'circle',line:{color:'#1a3a52',width:1.5},opacity:.9},
+    text:desvios.map(d=>fmtAbrev(d,true)),textposition:'top center',textfont:{size:10},
+    customdata:texts,hovertemplate:'%{customdata}<extra></extra>',name:'Desvio por Loja'};
+
+  const eixoY=modo==='consumo'?`Desvio (${detectarUnidade($('s-con').value)||''})`:' Desvio (R$)';
+  const layout=baseLayout('Dispersão do Desvio por Loja — 2026',eixoY,450);
+  layout.xaxis.type='category'; layout.xaxis.tickangle=-45;
+  layout.xaxis.range=[-0.5,lojas.length-0.5];
+  layout.shapes=[{type:'line',x0:-0.5,x1:lojas.length-0.5,y0:0,y1:0,line:{color:'#95a5a6',width:1.5,dash:'dash'}}];
+  if(bench){
+    const benchIdx=lojas.indexOf(bench);
+    layout.annotations=[{x:bench,y:desvios[benchIdx],text:`🏆 Benchmark<br>Loja ${bench}`,showarrow:true,arrowhead:2,arrowcolor:'#e74c3c',ax:0,ay:-50,font:{size:11,color:'#e74c3c'},bgcolor:'#fff9e6',bordercolor:'#e74c3c',borderwidth:1}];
+  }
+  renderPlotly('disp-div',{data:[trace],layout});
+  setStatus('✅ Dispersão gerada!');
+}
+
+// ─── BENCHMARK ────────────────────────────────────────────────────────────────
+function gerarBenchmark(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('bench-div','Gerando benchmark…');
+  $('bench-info').style.display='none';
+  setTimeout(()=>{
+    try{ _gerarBenchmark(); }
+    catch(e){ $('bench-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarBenchmark(){
+  const c=cols(modo); const colReal=c.real; const colOrc=c.orc;
+  let rows=filtrar();
+  rows=rows.filter(r=>r['_ano']===2026);
+  if(!rows.length){ $('bench-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados de 2026.</p></div>'; return; }
+
+  const byLoja={};
+  rows.forEach(r=>{ const l=String(r['Nº Loja']); if(!byLoja[l])byLoja[l]={real:0,orc:0}; byLoja[l].real+=r[colReal]||0; byLoja[l].orc+=r[colOrc]||0; });
+  const lojas=Object.keys(byLoja).sort((a,b)=>byLoja[b].real-byLoja[a].real);
+  const realV=lojas.map(l=>byLoja[l].real);
+  const orcV=lojas.map(l=>byLoja[l].orc);
+  const temOrc=orcV.some(v=>v>0);
+  const desvios=temOrc?lojas.map((l,i)=>byLoja[l].real-byLoja[l].orc):realV.map(()=>0);
+  const bench=lojas[desvios.map(Math.abs).reduce((bi,v,i)=>v<desvios.map(Math.abs)[bi]?i:bi,0)];
+
+  const n=lojas.length;
+  const blues=lojas.map((_,i)=>`rgba(41,${Math.round(128+i*(188-128)/(n-1||1))},${Math.round(185+i*(221-185)/(n-1||1))},0.85)`);
+  const texts=lojas.map((l,i)=>`Loja ${l}<br>${c.lblR}: ${modo==='consumo'?fmtAbrev(realV[i]):fmtBRL(realV[i])}${temOrc?`<br>Desvio: ${fmtAbrev(desvios[i],true)}`:''}`);
+
+  const traces=[{type:'bar',x:lojas,y:realV,name:c.lblR,
+    marker:{color:blues,line:{color:'#1a3a52',width:.5}},
+    customdata:texts,hovertemplate:'%{customdata}<extra></extra>',
+    text:realV.map(v=>fmtAbrev(v)),textposition:'outside',textfont:{size:9}}];
+
+  if(temOrc){
+    traces.push({type:'scatter',x:lojas,y:orcV,name:c.lblO,mode:'lines+markers',
+      line:{color:'#c0392b',width:2,dash:'dot'},marker:{color:'white',size:7,symbol:'square',line:{color:'#c0392b',width:2}},
+      hovertemplate:'<b>Orçado</b><br>%{x}: %{y:,.0f}<extra></extra>'});
+  }
+
+  const eixoY=modo==='consumo'?`${c.lblR} (${detectarUnidade($('s-con').value)||''})`:c.lblR+' (R$)';
+  const layout=baseLayout('Benchmark por Loja — 2026',eixoY,460);
+  layout.xaxis.type='category'; layout.xaxis.tickangle=-45;
+  layout.xaxis.range=[-0.5,lojas.length-0.5];
+
+  const info=$('bench-info');
+  info.textContent=`🏆 Benchmark: Loja ${bench} — ${temOrc?'menor desvio absoluto em relação ao orçado':'maior eficiência relativa'}`;
+  info.style.display='block';
+  renderPlotly('bench-div',{data:traces,layout});
+  setStatus('✅ Benchmark gerado!');
+}
+
+// ─── TENDÊNCIA ────────────────────────────────────────────────────────────────
+function gerarTendencia(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('tend-div','Gerando tendência de desvios…');
+  setTimeout(()=>{
+    try{ _gerarTendencia(); }
+    catch(e){ $('tend-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarTendencia(){
+  const c=cols(modo); const colReal=c.real; const colOrc=c.orc;
+  let rows=filtrar();
+  if(!rows.length){ $('tend-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados.</p></div>'; return; }
+
+  const lojas=[...new Set(rows.map(r=>r['Nº Loja']).filter(v=>v!=null))];
+  const prev=[];
+  lojas.forEach(l=>{
+    const dl=rows.filter(r=>r['Nº Loja']===l);
+    const ult=dl.filter(r=>r['_ano']===2026);
+    if(!ult.length) return;
+    // desvio por mês em 2026
+    const byMes={};
+    ult.forEach(r=>{ const m=r['_mes']; if(!byMes[m])byMes[m]={real:0,orc:0}; byMes[m].real+=r[colReal]||0; byMes[m].orc+=r[colOrc]||0; });
+    const meses=Object.keys(byMes).map(Number).sort();
+    if(!meses.length) return;
+    const desviosPorMes=meses.map(m=>byMes[m].real-byMes[m].orc);
+    // regressão linear simples
+    const n=desviosPorMes.length;
+    if(n<2){ prev.push({loja:String(l),previsto:desviosPorMes[0]||0,ultimo:desviosPorMes[0]||0,tendencia:0}); return; }
+    const xs=meses.map((_,i)=>i); const ys=desviosPorMes;
+    const mx=mean(xs); const my=mean(ys);
+    const cov=xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0);
+    const varX=xs.reduce((s,x)=>s+(x-mx)**2,0);
+    const b=varX?cov/varX:0; const a=my-b*mx;
+    const dp=a+b*n; // próximo ponto
+    prev.push({loja:String(l),previsto:dp,ultimo:ys[ys.length-1],tendencia:dp-ys[ys.length-1]});
+  });
+
+  if(!prev.length){ $('tend-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados suficientes para gerar previsões.</p></div>'; return; }
+  prev.sort((a,b)=>b.previsto-a.previsto);
+  const lojasSorted=prev.map(p=>String(p.loja));
+  const n=lojasSorted.length;
+  const blues=lojasSorted.map((_,i)=>`rgba(41,${Math.round(128+i*(188-128)/(n-1||1))},${Math.round(185+i*(221-185)/(n-1||1))},0.85)`);
+  const customD=prev.map(p=>`Loja ${p.loja}<br>Desvio Previsto: ${fmtAbrev(p.previsto,true)}<br>Último Desvio: ${fmtAbrev(p.ultimo,true)}<br>Tendência: ${fmtAbrev(p.tendencia,true)}`);
+
+  const tBarras={type:'bar',x:lojasSorted,y:prev.map(p=>p.previsto),name:'Desvio Previsto',
+    marker:{color:blues,line:{color:'#1a3a52',width:.5}},customdata:customD,
+    hovertemplate:'%{customdata}<extra></extra>',text:prev.map(p=>fmtAbrev(p.previsto,true)),
+    textposition:'outside',textfont:{size:9,color:'#2c3e50'}};
+  const tLinha={type:'scatter',x:lojasSorted,y:prev.map(p=>p.ultimo),name:'Último Desvio Real',
+    mode:'lines+markers+text',line:{color:'#e74c3c',width:2},
+    marker:{color:'white',size:7,symbol:'circle',line:{color:'#e74c3c',width:2}},
+    text:prev.map(p=>fmtAbrev(p.ultimo,true)),textposition:'bottom center',textfont:{size:9,color:'#e74c3c'},
+    hovertemplate:'<b>Último Desvio</b><br>%{x}: %{y:,.0f}<extra></extra>'};
+
+  const eixoY=modo==='consumo'?`Desvio (${detectarUnidade($('s-con').value)||''})`:' Desvio (R$)';
+  const layout=baseLayout('Previsão de Desvios para Próximo Mês',eixoY,450);
+  layout.xaxis.type='category'; layout.xaxis.tickangle=-45; layout.xaxis.range=[-0.5,lojasSorted.length-0.5];
+  layout.barmode='overlay';
+  const todosVals=[...prev.map(p=>p.previsto),...prev.map(p=>p.ultimo)].filter(v=>!isNaN(v));
+  if(todosVals.length){ const mn=Math.min(...todosVals),mx=Math.max(...todosVals),sp=mx!==mn?mx-mn:Math.abs(mx)*.1||1; layout.yaxis.range=[mn-sp*.3,mx+sp*.3]; }
+  renderPlotly('tend-div',{data:[tBarras,tLinha],layout});
+  setStatus('✅ Tendência gerada!');
+}
+
+// ─── YOY ──────────────────────────────────────────────────────────────────────
+function gerarYoY(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('yoy-div','Gerando YoY…');
+  setTimeout(()=>{
+    try{ _gerarYoY(); }
+    catch(e){ $('yoy-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarYoY(){
+  const c=cols(modo); const colReal=c.real;
+  let rows=filtrar();
+  if(!rows.length){ $('yoy-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados.</p></div>'; return; }
+
+  const anos=[...new Set(rows.map(r=>r['_ano']))].sort(); const anoAt=Math.max(...anos); const anoAnt=anoAt-1;
+  const mes=$('s-mes').value;
+  const labels=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>Object.values(MESES_ABR)[m-1]);
+  let vp, va;
+
+  if(mes&&mes!=='Todos os meses'){
+    const mesRows=filtrarMes(rows,mes); const mNum=mesRows[0]?mesRows[0]['_mes']:null;
+    if(!mNum){ $('yoy-div').innerHTML='<div class="empty"><p style="color:#ef4444">Filtro inválido.</p></div>'; return; }
+    vp=[rows.filter(r=>r['_ano']===anoAnt&&r['_mes']===mNum).reduce((s,r)=>s+(r[colReal]||0),0)];
+    va=[rows.filter(r=>r['_ano']===anoAt&&r['_mes']===mNum).reduce((s,r)=>s+(r[colReal]||0),0)];
+  } else {
+    vp=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>rows.filter(r=>r['_ano']===anoAnt&&r['_mes']===m).reduce((s,r)=>s+(r[colReal]||0),0));
+    va=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>rows.filter(r=>r['_ano']===anoAt&&r['_mes']===m).reduce((s,r)=>s+(r[colReal]||0),0));
+  }
+
+  const labelsUsed=vp.length===1?[labels[filtrarMes(rows,mes)[0]?filtrarMes(rows,mes)[0]['_mes']-1:0]]:labels;
+  const customD=labelsUsed.map((l,i)=>{
+    const diff=vp[i]&&vp[i]!==0?((va[i]-vp[i])/Math.abs(vp[i])*100):null;
+    const sinal=diff!=null?(diff>=0?'+':'')+diff.toFixed(1)+'%':'—';
+    const emoji=diff==null?'—':(diff>=0?'🟢':'🔴');
+    return `<b>${l}</b><br>${anoAnt}: ${modo==='consumo'?fmtAbrev(vp[i]):fmtBRL(vp[i])}<br>${anoAt}: ${modo==='consumo'?fmtAbrev(va[i]):fmtBRL(va[i])}<br>──────────────<br>Variação: ${emoji} ${sinal}`;
+  });
+
+  const eixoY=c.lblR+(modo==='consumo'?'':' (R$)');
+  const traces=[
+    {type:'bar',x:labelsUsed,y:vp,name:String(anoAnt),marker:{color:'rgba(52,152,219,0.85)',line:{color:'#1a3a52',width:.5}},hoverinfo:'skip',text:vp.map(v=>fmtAbrev(v)),textposition:'outside',textfont:{size:9}},
+    {type:'bar',x:labelsUsed,y:va,name:String(anoAt),marker:{color:'rgba(230,126,34,0.85)',line:{color:'#1a3a52',width:.5}},customdata:customD,hovertemplate:'%{customdata}<extra></extra>',text:va.map(v=>fmtAbrev(v)),textposition:'outside',textfont:{size:9}},
+  ];
+  const layout=baseLayout(`YoY Mensal: ${anoAt} vs ${anoAnt}`,eixoY,420);
+  layout.barmode='group'; layout.bargap=0.25; layout.bargroupgap=0.08; layout.hovermode='closest';
+  renderPlotly('yoy-div',{data:traces,layout});
+  setStatus('✅ YoY gerado!');
+}
+
+// ─── PARETO ───────────────────────────────────────────────────────────────────
+function gerarPareto(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('par-div','Gerando Pareto…');
+  setTimeout(()=>{
+    try{ _gerarPareto(); }
+    catch(e){ $('par-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarPareto(){
+  const c=cols(modo); const colReal=c.real;
+  const dim=document.querySelector('input[name="pdim"]:checked').value;
+  const pct=parseFloat($('p-pct').value)/100||0.8;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+  else rows=rows.filter(r=>r['_ano']===2026);
+
+  if(!rows.length){ $('par-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados.</p></div>'; return; }
+
+  const campo=dim==='Conta'?'Descrição Conta':'Nº Loja';
+  const byGrupo={};
+  rows.forEach(r=>{ const k=String(r[campo]||''); byGrupo[k]=(byGrupo[k]||0)+(r[colReal]||0); });
+  let ag=Object.entries(byGrupo).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  if(!ag.length){ $('par-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados válidos.</p></div>'; return; }
+  const total=ag.reduce((s,[,v])=>s+v,0);
+  let acum=0; ag=ag.map(([k,v])=>{ acum+=v; return {k,v,cumul:acum/total*100,pct:v/total*100}; });
+  const labels=ag.map(a=>a.k); const n=labels.length;
+  const blues=labels.map((_,i)=>`rgba(${Math.round(26+i*(188-26)/(n-1||1))},${Math.round(82+i*(214-82)/(n-1||1))},${Math.round(118+i*(232-118)/(n-1||1))},0.9)`);
+  const customB=ag.map(a=>`${a.k}<br>${modo==='consumo'?fmtAbrev(a.v):fmtBRL(a.v)}<br>Participação: ${a.pct.toFixed(1)}%<br>Acumulado: ${a.cumul.toFixed(1)}%`);
+  const tBarra={type:'bar',x:labels,y:ag.map(a=>a.v),name:c.lblR,marker:{color:blues,line:{color:'#1a3a52',width:.5}},customdata:customB,hovertemplate:'%{customdata}<extra></extra>',yaxis:'y1'};
+  const tLinha={type:'scatter',x:labels,y:ag.map(a=>a.cumul),name:'Acumulado %',mode:'lines+markers',line:{color:'#e74c3c',width:2.5},marker:{color:'white',size:6,symbol:'circle',line:{color:'#e74c3c',width:2}},hovertemplate:'<b>Acumulado</b><br>%{x}: %{y:.1f}%<extra></extra>',yaxis:'y2'};
+  const tMeta={type:'scatter',x:[labels[0],labels[labels.length-1]],y:[pct*100,pct*100],mode:'lines',name:`Meta ${Math.round(pct*100)}%`,line:{color:'#27ae60',width:2,dash:'dash'},hoverinfo:'skip',yaxis:'y2'};
+  const maxLen=Math.max(...labels.map(l=>String(l).length),10);
+  const mb=Math.min(30+maxLen*6,300);
+  const eixoY=modo==='consumo'?c.lblR:`${c.lblR} (R$)`;
+  const layout=baseLayout(`Análise Pareto — ${dim}`,eixoY,Math.max(500,400+mb));
+  layout.margin.b=mb; layout.xaxis.type='category'; layout.xaxis.tickangle=-45; layout.xaxis.automargin=true; layout.xaxis.tickfont={size:10};
+  layout.yaxis={title:eixoY,gridcolor:'#ecf0f1',tickfont:{size:10}};
+  layout.yaxis2={title:'Acumulado (%)',overlaying:'y',side:'right',range:[0,110],tickformat:'.0f',ticksuffix:'%',gridcolor:'rgba(0,0,0,0)',tickfont:{size:10,color:'#e74c3c'},titlefont:{color:'#e74c3c'}};
+  layout.legend={orientation:'h',y:1.08,x:1,xanchor:'right'};
+  renderPlotly('par-div',{data:[tBarra,tLinha,tMeta],layout});
+  setStatus('✅ Pareto gerado!');
+}
+
+// ─── MAPA DE CALOR ────────────────────────────────────────────────────────────
+function gerarHeatmap(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('hm-div','Gerando Mapa de Calor…');
+  setTimeout(()=>{
+    try{ _gerarHeatmap(); }
+    catch(e){ $('hm-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarHeatmap(){
+  const c=cols(modo); const colReal=c.real;
+  const ano=parseInt($('hm-ano').value)||2026;
+  let rows=filtrar();
+  rows=rows.filter(r=>r['_ano']===ano);
+  if(!rows.length){ $('hm-div').innerHTML=`<div class="empty"><p style="color:#ef4444">Sem dados para ${ano}.</p></div>`; return; }
+
+  // pivot Loja × Mês
+  const byLojaMes={};
+  rows.forEach(r=>{
+    const l=String(r['Nº Loja']); const m=r['_mes'];
+    if(!byLojaMes[l]) byLojaMes[l]={};
+    byLojaMes[l][m]=(byLojaMes[l][m]||0)+(r[colReal]||0);
+  });
+  const lojas=Object.keys(byLojaMes).sort();
+  const mesesUsed=[...new Set(rows.map(r=>r['_mes']))].sort((a,b)=>a-b);
+  const mesesLabels=mesesUsed.map(m=>MESES_ABR[m]||String(m));
+  const z=lojas.map(l=>mesesUsed.map(m=>byLojaMes[l][m]||0));
+  const textMatrix=z.map(row=>row.map(v=>v>0?fmtAbrev(v):''));
+  const unidade=detectarUnidade($('s-con').value);
+  const pfx=modo==='consumo'?'':'R$ ';
+  const hover=z.map((row,i)=>row.map((v,j)=>`Loja ${lojas[i]}<br>${mesesLabels[j]}/${String(ano).slice(-2)}<br>${pfx}${v.toLocaleString('pt-BR')}${unidade?' '+unidade:''}`));
+
+  const trace={type:'heatmap',x:mesesLabels,y:lojas,z,text:textMatrix,customdata:hover,
+    hovertemplate:'%{customdata}<extra></extra>',texttemplate:'%{text}',textfont:{size:9},
+    colorscale:[[0,'rgba(220,252,231,1)'],[0.25,'rgba(74,222,128,1)'],[0.5,'rgba(250,204,21,1)'],[0.75,'rgba(249,115,22,1)'],[1,'rgba(185,28,28,1)']],
+    showscale:true,colorbar:{title:unidade||'R$',tickfont:{size:10},len:.8}};
+  const h=Math.max(400,60+lojas.length*28);
+  const layout=baseLayout(`Mapa de Calor — Loja × Mês (${ano})${modo==='consumo'?' [Consumo]':''}`,undefined,h);
+  layout.xaxis={title:'Mês',tickfont:{size:11},showgrid:false};
+  layout.yaxis={title:'Loja',type:'category',autorange:'reversed',tickfont:{size:10},showgrid:false};
+  layout.margin={l:70,r:80,t:55,b:50};
+  renderPlotly('hm-div',{data:[trace],layout});
+  setStatus('✅ Mapa de Calor gerado!');
+}
+
+// ─── ANOMALIAS ────────────────────────────────────────────────────────────────
+function gerarAnomalias(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  loading('an-div','Detectando anomalias…');
+  $('an-table').innerHTML='';
+  $('an-info').style.display='none';
+  setTimeout(()=>{
+    try{ _gerarAnomalias(); }
+    catch(e){ $('an-div').innerHTML=`<div class="empty"><p style="color:#ef4444">${e.message}</p></div>`; console.error(e); }
+  },30);
+}
+
+function _gerarAnomalias(){
+  const c=cols(modo); const colReal=c.real;
+  const sigma=parseFloat($('an-sigma').value)||2;
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  const unidade=detectarUnidade($('s-con').value);
+  const pfx=modo==='consumo'?'':'R$ ';
+
+  // stats históricas por loja (todos os anos, por mês)
+  const statsHist={};
+  rows.forEach(r=>{
+    const l=String(r['Nº Loja']); const val=r[colReal]||0;
+    if(!statsHist[l]) statsHist[l]=[];
+    statsHist[l].push(val);
+  });
+  Object.keys(statsHist).forEach(l=>{
+    const arr=statsHist[l];
+    statsHist[l]={media:mean(arr),std:std(arr),n:arr.length};
+  });
+
+  // dados de 2026
+  let rows26=rows.filter(r=>r['_ano']===2026);
+  if(mes&&mes!=='Todos os meses') rows26=filtrarMes(rows26,mes);
+
+  const byLoja26={};
+  rows26.forEach(r=>{ const l=String(r['Nº Loja']); if(!byLoja26[l])byLoja26[l]=[]; byLoja26[l].push(r[colReal]||0); });
+
+  if(!Object.keys(byLoja26).length){ $('an-div').innerHTML='<div class="empty"><p style="color:#ef4444">Sem dados de 2026 para análise.</p></div>'; return; }
+
+  const lojas=Object.keys(byLoja26).sort();
+  const totais=lojas.map(l=>byLoja26[l].reduce((a,b)=>a+b,0));
+  const colors=[]; const hover=[]; const anomalias=[];
+
+  lojas.forEach((l,i)=>{
+    const tot=totais[i];
+    const s=statsHist[l];
+    const fmtV=v=>pfx+Math.round(v).toLocaleString('pt-BR')+(modo==='consumo'&&unidade?' '+unidade:'');
+    if(!s||s.n<4){ colors.push('#94a3b8'); hover.push(`Loja ${l}<br>Total 2026: ${fmtV(tot)}<br>Histórico insuficiente`); return; }
+    const zScores=byLoja26[l].map(v=>s.std>0?Math.abs(v-s.media)/s.std:0);
+    const zMax=Math.max(...zScores);
+    const isAnom=zMax>=sigma;
+    if(isAnom){ colors.push(tot>s.media?'#dc2626':'#2563eb'); anomalias.push({loja:l,valor:tot,media:s.media,desvio:tot-(s.media*byLoja26[l].length),z:zMax}); }
+    else { colors.push('#22c55e'); }
+    hover.push(`Loja ${l}<br>Total 2026: ${fmtV(tot)}<br>Média Histórica Mensal: ${fmtV(s.media)}<br>Z-score: ${zMax.toFixed(2)}σ<br>${isAnom?'🚨 ANOMALIA':'✅ Normal'}`);
+  });
+
+  const trace={type:'bar',x:lojas,y:totais,name:'Total 2026',marker:{color:colors,line:{color:'#1a3a52',width:.5}},customdata:hover,hovertemplate:'%{customdata}<extra></extra>',text:totais.map(v=>fmtAbrev(v)),textposition:'outside',textfont:{size:9}};
+  const eixoY=modo==='consumo'?`Total (${unidade||'un'})`:'Total (R$)';
+  const layout=baseLayout(`Detecção de Anomalias — 2026 (${sigma}σ)`,eixoY,500);
+  layout.xaxis.type='category'; layout.xaxis.tickangle=-45; layout.xaxis.range=[-0.5,lojas.length-0.5];
+
+  const info=$('an-info');
+  if(anomalias.length){
+    info.textContent=`🚨 ${anomalias.length} anomalia(s) detectada(s) em ${anomalias.length} loja(s)`;
+    info.style.display='block';
+    const fmtTbl=v=>pfx+Math.round(Math.abs(v)).toLocaleString('pt-BR')+(modo==='consumo'&&unidade?' '+unidade:'');
+    const col1Tit=modo==='consumo'?(unidade?`Total 2026 (${unidade})`:'Total 2026'):'Total 2026 (R$)';
+    const col2Tit=modo==='consumo'?(unidade?`Média Mensal (${unidade})`:'Média Mensal'):'Média Mensal (R$)';
+    let html=`<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Loja</th><th>${col1Tit}</th><th>${col2Tit}</th><th>Desvio Total</th><th>Z-score Máx.</th></tr></thead><tbody>`;
+    anomalias.forEach(a=>{
+      const cor=a.desvio>0?'#dc2626':'#2563eb'; const sinal=a.desvio>0?'+':'-';
+      const desvioFmt=sinal+fmtAbrev(Math.abs(a.desvio))+(modo==='consumo'&&unidade?' '+unidade:'');
+      html+=`<tr><td><strong>Loja ${escHtml(a.loja)}</strong></td><td>${fmtTbl(a.valor)}</td><td>${fmtTbl(a.media)}</td><td style="color:${cor};font-weight:700">${desvioFmt}</td><td style="color:${cor};font-weight:700">${a.z.toFixed(2)}σ</td></tr>`;
+    });
+    html+='</tbody></table></div>';
+    $('an-table').innerHTML=html;
+  } else {
+    info.textContent='✅ Nenhuma anomalia detectada com a sensibilidade selecionada.';
+    info.style.color='#16a34a'; info.style.background='#dcfce7'; info.style.borderColor='#86efac';
+    info.style.display='block';
+  }
+  renderPlotly('an-div',{data:[trace],layout});
+  setStatus(`✅ Análise concluída — ${anomalias.length} anomalia(s)`);
+}
+
+// ─── EFICIÊNCIA ───────────────────────────────────────────────────────────────
+function gerarEficiencia(){
+  if(!DADOS.length){ alert('Carregue uma planilha primeiro.'); return; }
+  $('ef-grid').innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><span class="spinner"></span><p style="margin-top:12px">Calculando eficiência por loja…</p></div></div>';
+  $('ef-kpi').style.display='none';
+  $('ef-aviso').style.display='none';
+  setStatus('⚡ Calculando eficiência…');
+  setTimeout(()=>{
+    try{ _gerarEficiencia(); }
+    catch(e){ $('ef-grid').innerHTML=`<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">${e.message}</p></div></div>`; setStatus('❌ '+e.message,false); console.error(e); }
+  },30);
+}
+
+function _gerarEficiencia(){
+  const colConsR='Consumo Realizado'; const colConsO='Consumo Orçado';
+  const colReal='Realizado'; const colOrc='Orçado';
+  let rows=filtrar();
+  const mes=$('s-mes').value;
+  if(mes&&mes!=='Todos os meses') rows=filtrarMes(rows,mes);
+  else rows=rows.filter(r=>r['_ano']===2026);
+
+  if(!rows.length){ throw new Error('Sem dados de 2026 para os filtros selecionados.'); }
+  if(!rows.some(r=>r[colConsR]!=null)){ throw new Error('Coluna "Consumo Realizado" não encontrada. Selecione uma conta de energia/gás.'); }
+
+  const dfCons=rows.filter(r=>r[colConsR]!=null&&r[colConsR]>0);
+  if(!dfCons.length) throw new Error('Nenhuma linha com "Consumo Realizado" > 0. Selecione uma conta de energia/gás.');
+
+  const unidade=detectarUnidade($('s-con').value)||'un';
+  const byLoja={};
+  dfCons.forEach(r=>{
+    const l=String(r['Nº Loja']);
+    if(!byLoja[l])byLoja[l]={real:0,cons:0,orc:0,consOrc:0};
+    byLoja[l].real+=r[colReal]||0;
+    byLoja[l].cons+=r[colConsR]||0;
+    byLoja[l].orc+=r[colOrc]||0;
+    byLoja[l].consOrc+=r[colConsO]||0;
+  });
+
+  const lojas=Object.keys(byLoja).filter(l=>byLoja[l].cons>0);
+  if(!lojas.length) throw new Error('Sem dados suficientes para calcular eficiência.');
+
+  const tarifaReal=lojas.map(l=>byLoja[l].real/byLoja[l].cons);
+  const tarifaMeta=lojas.map(l=>byLoja[l].consOrc>0?byLoja[l].orc/byLoja[l].consOrc:null);
+  const consV=lojas.map(l=>byLoja[l].cons);
+
+  const mediaTarifa=mean(tarifaReal); const mediaCons=mean(consV);
+  const lojasRank=[...lojas]; lojasRank.sort((a,b)=>tarifaReal[lojas.indexOf(b)]-tarifaReal[lojas.indexOf(a)]);
+
+  const coresRank=lojasRank.map(l=>{ const t=tarifaReal[lojas.indexOf(l)]; return t>mediaTarifa*1.1?'#ef4444':(t>mediaTarifa?'#f59e0b':'#10b981'); });
+  const hoverRank=lojasRank.map(l=>{ const i=lojas.indexOf(l); return `Loja ${l}<br>Tarifa Efetiva: ${tarifaReal[i].toFixed(4)} R$/${unidade}`+(tarifaMeta[i]?`<br>Tarifa Meta: ${tarifaMeta[i].toFixed(4)} R$/${unidade}`:'')+`<br>Média geral: ${mediaTarifa.toFixed(4)} R$/${unidade}`+(tarifaReal[i]>mediaTarifa?'<br>⚠️ Acima da média':'<br>✅ Abaixo da média'); });
+  const trRank=[
+    {type:'bar',x:lojasRank,y:lojasRank.map(l=>tarifaReal[lojas.indexOf(l)]),name:'Tarifa Efetiva',marker:{color:coresRank,line:{color:'#1a3a52',width:.4}},customdata:hoverRank,hovertemplate:'%{customdata}<extra></extra>',text:lojasRank.map(l=>tarifaReal[lojas.indexOf(l)].toFixed(4)),textposition:'outside',textfont:{size:8}},
+    {type:'scatter',x:lojasRank,y:lojasRank.map(()=>mediaTarifa),mode:'lines',name:`Média (${mediaTarifa.toFixed(4)})`,line:{color:'#6366f1',width:2,dash:'dash'},hoverinfo:'skip'}
+  ];
+  if(tarifaMeta.some(v=>v!=null)){
+    trRank.push({type:'scatter',x:lojasRank,y:lojasRank.map(l=>tarifaMeta[lojas.indexOf(l)]),mode:'lines+markers',name:'Tarifa Meta',line:{color:'#c0392b',width:1.5,dash:'dot'},marker:{size:5,color:'#c0392b'},hovertemplate:'Meta: %{y:.4f}<extra></extra>'});
+  }
+  const layRank=baseLayout(`Ranking Tarifa Efetiva por Loja — 2026`,`R$/${unidade}`,420);
+  layRank.barmode='group'; layRank.xaxis={type:'category',tickangle:-45,tickfont:{size:10},showgrid:false};
+
+  // Scatter
+  const coresSc=[]; const quadrantes=[];
+  lojas.forEach((l,i)=>{ const hC=consV[i]>mediaCons; const cara=tarifaReal[i]>mediaTarifa; if(hC&&cara){coresSc.push('#ef4444');quadrantes.push('⚠️ Alto consumo + Cara');}else if(hC){coresSc.push('#f59e0b');quadrantes.push('📦 Alto consumo + Barata');}else if(cara){coresSc.push('#8b5cf6');quadrantes.push('💸 Baixo consumo + Cara');}else{coresSc.push('#10b981');quadrantes.push('✅ Baixo consumo + Barata');} });
+  const hoverSc=lojas.map((l,i)=>`Loja ${l}<br>Consumo: ${consV[i].toLocaleString('pt-BR',{maximumFractionDigits:0})} ${unidade}<br>Tarifa Efetiva: ${tarifaReal[i].toFixed(4)} R$/${unidade}<br>${quadrantes[i]}`);
+  const trSc=[{type:'scatter',mode:'markers+text',x:consV,y:tarifaReal,marker:{color:coresSc,size:13,symbol:'circle',line:{color:'#1a3a52',width:1.2},opacity:.85},text:lojas,textposition:'top center',textfont:{size:9},customdata:hoverSc,hovertemplate:'%{customdata}<extra></extra>',name:'Lojas'}];
+  const laySc=baseLayout(`Scatter: Consumo × Tarifa Efetiva — 2026 (Quadrantes)`,`Tarifa Efetiva (R$/${unidade})`,460);
+  laySc.xaxis={title:`Consumo (${unidade})`,showgrid:true,gridcolor:'#f1f5f9',tickfont:{size:10}};
+  laySc.shapes=[
+    {type:'line',x0:mediaCons,x1:mediaCons,y0:Math.min(...tarifaReal)*.95,y1:Math.max(...tarifaReal)*1.05,line:{color:'#64748b',width:1.5,dash:'dash'}},
+    {type:'line',x0:Math.min(...consV)*.95,x1:Math.max(...consV)*1.05,y0:mediaTarifa,y1:mediaTarifa,line:{color:'#64748b',width:1.5,dash:'dash'}}
+  ];
+
+  // Evolução mensal tarifa
+  const byMesLoja={};
+  dfCons.forEach(r=>{
+    const l=String(r['Nº Loja']); const m=r['_mes'];
+    if(!byMesLoja[m]) byMesLoja[m]={};
+    if(!byMesLoja[m][l]) byMesLoja[m][l]={real:0,cons:0};
+    byMesLoja[m][l].real+=r[colReal]||0;
+    byMesLoja[m][l].cons+=r[colConsR]||0;
+  });
+  const mesesEv=Object.keys(byMesLoja).map(Number).sort();
+  const mesesLabels=mesesEv.map(m=>MESES_ABR[m]||String(m));
+  const mediasEv=mesesEv.map(m=>{ const ts=Object.values(byMesLoja[m]).filter(v=>v.cons>0).map(v=>v.real/v.cons); return ts.length?mean(ts):null; });
+  const trEv=[{type:'scatter',mode:'lines+markers+text',x:mesesLabels,y:mediasEv,name:'Média Mensal',line:{color:'#2563eb',width:3},marker:{color:'white',size:9,symbol:'circle',line:{color:'#2563eb',width:2.5}},text:mediasEv.map(v=>v?v.toFixed(4):''),textposition:'top center',textfont:{size:9,color:'#2563eb'},hovertemplate:`<b>Média — %{x}</b><br>%{y:.4f} R$/${unidade}<extra></extra>`}];
+  const layEv=baseLayout('Evolução Mensal da Tarifa Efetiva — 2026',`R$/${unidade}`,460);
+
+  // KPIs
+  const iMin=tarifaReal.indexOf(Math.min(...tarifaReal)); const iMax=tarifaReal.indexOf(Math.max(...tarifaReal));
+  const spread=Math.max(...tarifaReal)-Math.min(...tarifaReal);
+  const nAcima=tarifaReal.filter(t=>t>mediaTarifa).length;
+  $('ef-kpi-grid').innerHTML=`
+    <div class="kpi-card"><div class="kpi-title">Tarifa Média</div><div class="kpi-value">${mediaTarifa.toFixed(4)} R$/${unidade}</div></div>
+    <div class="kpi-card green"><div class="kpi-title">🏆 Melhor Loja</div><div class="kpi-value">${lojas[iMin]}</div><div class="kpi-sub">${tarifaReal[iMin].toFixed(4)} R$/${unidade}</div></div>
+    <div class="kpi-card red"><div class="kpi-title">⚠️ Pior Loja</div><div class="kpi-value">${lojas[iMax]}</div><div class="kpi-sub">${tarifaReal[iMax].toFixed(4)} R$/${unidade}</div></div>
+    <div class="kpi-card yellow"><div class="kpi-title">Spread (Max−Min)</div><div class="kpi-value">${spread.toFixed(4)} R$/${unidade}</div></div>
+    <div class="kpi-card ${nAcima>lojas.length/2?'red':'purple'}"><div class="kpi-title">Lojas Acima da Média</div><div class="kpi-value">${nAcima} / ${lojas.length}</div></div>`;
+  $('ef-kpi').style.display='block';
+
+  // Grafico 4: Decomposicao Preco vs Volume
+  let figDecomp=null;
+  const temDecomp=lojas.some(l=>byLoja[l].consOrc>0)&&lojas.some(l=>byLoja[l].orc>0);
+  if(temDecomp){
+    const dl2=lojas.filter(l=>byLoja[l].consOrc>0&&byLoja[l].orc>0);
+    if(dl2.length){
+      const lojas_d=[...dl2].sort((a,b)=>(byLoja[b].real-byLoja[b].orc)-(byLoja[a].real-byLoja[a].orc));
+      const efP=lojas_d.map(l=>{const tm=byLoja[l].orc/byLoja[l].consOrc;const tr2=byLoja[l].real/byLoja[l].cons;return(tr2-tm)*byLoja[l].consOrc;});
+      const efV=lojas_d.map(l=>{const tm=byLoja[l].orc/byLoja[l].consOrc;return(byLoja[l].cons-byLoja[l].consOrc)*tm;});
+      const tot=lojas_d.map(l=>byLoja[l].real-byLoja[l].orc);
+      const hP=lojas_d.map((l,i)=>`Loja ${l}<br>Efeito Preco: R$ ${Math.round(efP[i]).toLocaleString('pt-BR')}<br>${efP[i]>0?'Problema no contrato':'Tarifa favoravel'}`);
+      const hV=lojas_d.map((l,i)=>`Loja ${l}<br>Efeito Volume: R$ ${Math.round(efV[i]).toLocaleString('pt-BR')}<br>${efV[i]>0?'Consumo excessivo':'Consumo eficiente'}`);
+      const trDecomp=[
+        {type:'bar',name:'Efeito Preco (Tarifa)',x:lojas_d,y:efP,marker:{color:'#ef4444',opacity:.85,line:{color:'#991b1b',width:.5}},customdata:hP,hovertemplate:'%{customdata}<extra></extra>',text:efP.map(v=>fmtAbrev(v,true)),textposition:'outside',textfont:{size:8}},
+        {type:'bar',name:'Efeito Volume (Consumo)',x:lojas_d,y:efV,marker:{color:'#3b82f6',opacity:.85,line:{color:'#1e40af',width:.5}},customdata:hV,hovertemplate:'%{customdata}<extra></extra>',text:efV.map(v=>fmtAbrev(v,true)),textposition:'outside',textfont:{size:8}},
+        {type:'scatter',name:'Desvio Total',x:lojas_d,y:tot,mode:'markers',marker:{color:'#1e293b',size:10,symbol:'diamond',line:{color:'white',width:1.5}},hovertemplate:'<b>%{x}</b><br>Desvio Total: %{y:,.0f}<extra></extra>'}
+      ];
+      const layDecomp=baseLayout('Decomposicao do Desvio: Preco vs Volume - 2026','Desvio (R$)',440);
+      layDecomp.barmode='stack';
+      layDecomp.xaxis={type:'category',tickangle:-45,tickfont:{size:10},showgrid:false};
+      layDecomp.shapes=[{type:'line',x0:-0.5,x1:lojas_d.length-0.5,y0:0,y1:0,line:{color:'#94a3b8',width:1.5,dash:'dash'}}];
+      figDecomp={data:trDecomp,layout:layDecomp};
+    }
+  }
+  const figs=[
+    {id:'ef-rank',fig:{data:trRank,layout:layRank}},
+    {id:'ef-sc',  fig:{data:trSc,  layout:laySc}},
+    {id:'ef-ev',  fig:{data:trEv,  layout:layEv}},
+  ];
+  if(figDecomp) figs.push({id:'ef-decomp',fig:figDecomp});
+  const grid=$('ef-grid'); grid.innerHTML='';
+  figs.forEach(({id,fig})=>{
+    const card=document.createElement('div'); card.className='chart-card';
+    const inner=document.createElement('div'); inner.id=id; inner.style.minHeight='400px';
+    card.appendChild(inner); grid.appendChild(card); renderPlotly(id,fig);
+  });
+  if(!figDecomp){
+    $('ef-aviso').textContent='Decomposicao indisponivel: requer colunas Orcado e Consumo Orcado preenchidos para 2026.';
+    $('ef-aviso').style.display='block';
+  }
+  setStatus(`✅ Eficiência calculada — ${lojas.length} lojas analisadas`);}
+
+// ─── EXPORTAR XLSX ────────────────────────────────────────────────────────────
+function exportarDetalhamentoXLSX(){
+  if(!tabelaDet.length){ alert('Calcule o detalhamento primeiro.'); return; }
+  const ws=XLSX.utils.json_to_sheet(tabelaDet.map(r=>({'Loja':r.loja,'Real.+Previsto 2026':r.real_prev,'Média Real. 2026':r.media,'Ajuste Sugerido':r.ajuste,'Proposta 2027':r.proposta})));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Detalhamento');
+  XLSX.writeFile(wb,'Detalhamento_2027.xlsx');
+  setStatus('✅ Excel exportado!');
+}
+
+function exportarEscalonamentoXLSX(){
+  if(!tabelaEsc.length){ alert('Calcule o escalonamento primeiro.'); return; }
+  const ws=XLSX.utils.json_to_sheet(tabelaEsc.map(r=>({Loja:r.loja,Mês:r.mes,Valor:r.valor,Percentual:r.pct.toFixed(2)+'%','Valor Formatado':r.valor_fmt})));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Escalonamento 2027');
+  XLSX.writeFile(wb,'Escalonamento_2027.xlsx');
+  setStatus('✅ Escalonamento exportado!');
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+function _init(){
+  document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&document.activeElement===document.getElementById('inp-senha')) verificarSenha(); });
+  setStatus('🔄 Pronto — carregue uma planilha .xlsx para começar');
+}
+
+// Aguarda libs carregarem (podem ter sido injetadas dinamicamente)
+if(window._libsReady){
+  _init();
+} else {
+  window._pendingInit = _init;
+}
+</script>
+</body>
+</html>
