@@ -1191,6 +1191,70 @@ function gerarYoY(){
 // ─────────────────────────────────────────────────────────────────────────────
 // PARETO — fiel ao Python gerar_grafico_pareto
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER RESPONSIVO
+// Renderiza um gráfico que se ajusta à largura disponível do container.
+// Se o gráfico tem largura mínima necessária (wMin) maior que o container,
+// ativa scroll horizontal. Caso contrário, estica para preencher a tela.
+// Usa ResizeObserver para reagendar automaticamente ao redimensionar.
+// ─────────────────────────────────────────────────────────────────────────────
+const _resizeObservers={};
+
+function plotResponsivo(containerId, traces, layoutBase, wMin, h, cfg={}){
+  const container=$(containerId);
+  container.innerHTML='';
+  container.style.minHeight=(h+10)+'px';
+
+  // Cancela observer anterior se existia
+  if(_resizeObservers[containerId]){
+    _resizeObservers[containerId].disconnect();
+    delete _resizeObservers[containerId];
+  }
+
+  function render(){
+    const disponivel=container.getBoundingClientRect().width||container.offsetWidth||900;
+    const usarScroll=wMin>disponivel;
+    const w=usarScroll?wMin:disponivel;
+
+    container.style.overflowX=usarScroll?'auto':'hidden';
+    container.style.overflowY='hidden';
+
+    // Cria ou reutiliza inner div
+    let inner=container.querySelector('.plot-inner');
+    if(!inner){
+      inner=document.createElement('div');
+      inner.className='plot-inner';
+      container.appendChild(inner);
+    }
+    inner.style.width=w+'px';
+
+    const layout={...layoutBase, width:w, height:h};
+
+    // Se já tem gráfico, usa relayout; senão, newPlot
+    if(inner._hasPlot){
+      Plotly.react(inner, traces, layout, {
+        displaylogo:false, displayModeBar:true, responsive:false, scrollZoom:false,
+        modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','select2d','lasso2d','hoverClosestCartesian','hoverCompareCartesian'],
+        ...cfg
+      });
+    } else {
+      Plotly.newPlot(inner, traces, layout, {
+        displaylogo:false, displayModeBar:true, responsive:false, scrollZoom:false,
+        modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','select2d','lasso2d','hoverClosestCartesian','hoverCompareCartesian'],
+        ...cfg
+      });
+      inner._hasPlot=true;
+    }
+  }
+
+  render();
+
+  // Observa redimensionamento do container
+  const obs=new ResizeObserver(()=>render());
+  obs.observe(container);
+  _resizeObservers[containerId]=obs;
+}
+
 function gerarPareto(){
   if(!DADOS.length){ alert('Importe uma planilha primeiro.'); return; }
   loading('par-div','Gerando Pareto…');
@@ -1217,26 +1281,54 @@ function gerarPareto(){
   let cumSum=0;
   const paretoData=sorted.map(([k,v])=>{ cumSum+=v; return {k,v,cum:cumSum/total*100,pct:v/total*100}; });
   const n=paretoData.length;
+  const labels=paretoData.map(x=>x.k);
+
   const blues=paretoData.map((_,i)=>`rgba(${Math.round(26+i*(188-26)/(n-1||1))},${Math.round(82+i*(214-82)/(n-1||1))},${Math.round(118+i*(232-118)/(n-1||1))},0.9)`);
-  const customB=paretoData.map(x=>`${x.k}<br>${pfx}${x.v.toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>Participação: ${x.pct.toFixed(1)}%<br>Acumulado: ${x.cum.toFixed(1)}%`);
+  const customB=paretoData.map(x=>`<b>${x.k}</b><br>${pfx}${x.v.toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>Participação: ${x.pct.toFixed(1)}%<br>Acumulado: ${x.cum.toFixed(1)}%`);
 
-  const tBarra={type:'bar',x:paretoData.map(x=>x.k),y:paretoData.map(x=>x.v),name:c.label_r,
-    marker:{color:blues,line:{color:'#1a3a52',width:0.5}},customdata:customB,hovertemplate:'%{customdata}<extra></extra>',yaxis:'y1'};
-  const tLinha={type:'scatter',x:paretoData.map(x=>x.k),y:paretoData.map(x=>x.cum),name:'Acumulado %',
-    mode:'lines+markers',line:{color:'#e74c3c',width:2.5},
+  // Traces — yaxis:'y' para barras, yaxis:'y2' para linha acumulada
+  const tBarra={
+    type:'bar', x:labels, y:paretoData.map(x=>x.v), name:c.label_r,
+    marker:{color:blues, line:{color:'#1a3a52',width:0.5}},
+    customdata:customB, hovertemplate:'%{customdata}<extra></extra>',
+    yaxis:'y'
+  };
+  const tLinha={
+    type:'scatter', x:labels, y:paretoData.map(x=>x.cum), name:'Acumulado %',
+    mode:'lines+markers',
+    line:{color:'#e74c3c',width:2.5},
     marker:{color:'white',size:6,symbol:'circle',line:{color:'#e74c3c',width:2}},
-    hovertemplate:'<b>Acumulado</b><br>%{x}: %{y:.1f}%<extra></extra>',yaxis:'y2'};
-  const tMeta={type:'scatter',x:[paretoData[0].k,paretoData[paretoData.length-1].k],y:[pct*100,pct*100],
-    mode:'lines',name:`Meta ${Math.round(pct*100)}%`,line:{color:'#27ae60',width:2,dash:'dash'},hoverinfo:'skip',yaxis:'y2'};
+    hovertemplate:'<b>Acumulado</b><br>%{x}: %{y:.1f}%<extra></extra>',
+    yaxis:'y2'
+  };
+  const tMeta={
+    type:'scatter', x:[labels[0],labels[n-1]], y:[pct*100,pct*100],
+    mode:'lines', name:`Meta ${Math.round(pct*100)}%`,
+    line:{color:'#27ae60',width:2,dash:'dash'},
+    hoverinfo:'skip', yaxis:'y2'
+  };
 
-  const maxLen=Math.max(...paretoData.map(x=>String(x.k).length),10);
-  const mb=Math.min(30+maxLen*6,300);
-  const lay=baseLayout(`Análise Pareto (${Math.round(pct*100)}/20) — ${dim.replace('Descrição ','').replace('Nº ','')}${f.pacote&&f.pacote!=='Todos os pacotes'?' — '+f.pacote:''}`,Math.max(500,400+mb));
-  lay.margin.b=mb; lay.xaxis.type='category'; lay.xaxis.tickangle=-45; lay.xaxis.automargin=true; lay.xaxis.tickfont={size:10};
-  lay.yaxis={title:c.label_r,gridcolor:'#ecf0f1',tickfont:{size:10}};
-  lay.yaxis2={title:'Acumulado (%)',overlaying:'y',side:'right',range:[0,110],tickformat:'.0f',ticksuffix:'%',gridcolor:'rgba(0,0,0,0)',tickfont:{size:10,color:'#e74c3c'},titlefont:{color:'#e74c3c'}};
-  lay.legend={orientation:'h',y:1.08,x:1,xanchor:'right'};
-  renderPlotly('par-div',{data:[tBarra,tLinha,tMeta],layout:lay});
+  // Sem largura mínima — sempre usa a largura disponível da tela (sem scroll)
+  const margL=75, margR=85, margT=60, margB=220;
+  const wMin=0; // 0 = sempre preenche o container, sem scroll
+  const h=580;
+
+  const titulo=`Análise Pareto (${Math.round(pct*100)}/20) — ${dim.replace('Descrição ','').replace('Nº ','')}${f.pacote&&f.pacote!=='Todos os pacotes'?' — '+f.pacote:''}`;
+
+  const layoutBase={
+    title:{text:titulo,font:{size:14,color:'#2c3e50'},x:0.5,xanchor:'center'},
+    paper_bgcolor:'white', plot_bgcolor:'#fafbfc',
+    font:{size:11,color:'#2c3e50',family:"'Segoe UI',system-ui,sans-serif"},
+    margin:{l:margL,r:margR,t:margT,b:margB},
+    bargap:0.3,
+    xaxis:{type:'category',tickangle:-45,tickfont:{size:10},showgrid:false,automargin:false,fixedrange:true},
+    yaxis:{title:c.label_r,gridcolor:'#ecf0f1',tickfont:{size:10},zeroline:true,zerolinecolor:'#e2e8f0',tickformat:',.3s',fixedrange:true},
+    yaxis2:{title:'Acumulado (%)',overlaying:'y',side:'right',range:[0,105],tickformat:'.0f',ticksuffix:'%',showgrid:false,tickfont:{size:10,color:'#e74c3c'},title_font:{color:'#e74c3c'},fixedrange:true,zeroline:false},
+    legend:{orientation:'h',x:1,y:1.04,xanchor:'right',yanchor:'bottom',font:{size:11},bgcolor:'rgba(255,255,255,0.9)',bordercolor:'#dee2e6',borderwidth:1},
+    hovermode:'closest',hoverlabel:{bgcolor:'white',bordercolor:'#dee2e6',font:{size:12,color:'#2c3e50'}},dragmode:false
+  };
+
+  plotResponsivo('par-div',[tBarra,tLinha,tMeta],layoutBase,wMin,h);
   setStatus('✅ Pareto gerado!');
 }
 
@@ -1259,22 +1351,40 @@ function gerarHeatmap(){
 
   const unidade=detectarUnidade(f.conta);
   const lojas=[...new Set(df.map(x=>String(x['Nº Loja'])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
-  const z=lojas.map(l=>Array.from({length:12},(_,i)=>df.filter(x=>String(x['Nº Loja'])===l&&x._date.getMonth()===i).reduce((a,x)=>a+(x[colReal]||0),0)));
-  const textMatrix=z.map(row=>row.map(v=>v>0?fmtAbrev(v):''));
-  const hover=lojas.map((l,i)=>M_ABREV.map((m,j)=>`Loja ${l}<br>${m}/${String(ano).slice(-2)}<br>${pfx}${z[i][j].toLocaleString('pt-BR',{maximumFractionDigits:0})}${unidade?' '+unidade:''}`));
 
-  const trace={type:'heatmap',x:M_ABREV,y:lojas,z,
+  // Usa APENAS os meses que realmente têm dados — igual ao Python (pivot_table)
+  const mesesComDados=[...new Set(df.map(x=>x._date.getMonth()))].sort((a,b)=>a-b);
+  const mesesLabels=mesesComDados.map(m=>M_ABREV[m]);
+
+  const z=lojas.map(l=>mesesComDados.map(m=>
+    df.filter(x=>String(x['Nº Loja'])===l&&x._date.getMonth()===m).reduce((a,x)=>a+(x[colReal]||0),0)
+  ));
+  const textMatrix=z.map(row=>row.map(v=>v>0?fmtAbrev(v):''));
+  const hover=lojas.map((l,i)=>mesesLabels.map((m,j)=>
+    `Loja ${l}<br>${m}/${String(ano).slice(-2)}<br>${pfx}${z[i][j].toLocaleString('pt-BR',{maximumFractionDigits:0})}${unidade?' '+unidade:''}`
+  ));
+
+  const trace={type:'heatmap',x:mesesLabels,y:lojas,z,
     text:textMatrix,customdata:hover,hovertemplate:'%{customdata}<extra></extra>',
     texttemplate:'%{text}',textfont:{size:9},
     colorscale:[[0,'rgba(220,252,231,1)'],[0.25,'rgba(74,222,128,1)'],[0.5,'rgba(250,204,21,1)'],[0.75,'rgba(249,115,22,1)'],[1,'rgba(185,28,28,1)']],
     showscale:true,colorbar:{title:unidade||'R$',tickfont:{size:10},len:0.8}};
 
-  const h=Math.max(400,60+lojas.length*28);
-  const lay=baseLayout(`Mapa de Calor — Loja × Mês (${ano})${modo_consumo?' [Consumo]':''}`,h);
-  lay.xaxis={title:'Mês',tickfont:{size:11},showgrid:false};
-  lay.yaxis={title:'Loja',type:'category',autorange:'reversed',tickfont:{size:10},showgrid:false};
-  lay.margin={l:70,r:80,t:55,b:50};
-  renderPlotly('hm-div',{data:[trace],layout:lay});
+  // Altura dinâmica: 32px por loja. Largura: 120px/mês mínimo.
+  const h=Math.max(400, 80+lojas.length*32);
+  const wMin=Math.max(600, 180+mesesLabels.length*120);
+
+  const layBase={
+    title:{text:`Mapa de Calor — Loja × Mês (${ano})${modo_consumo?' [Consumo]':''}`,font:{size:14,color:'#2c3e50'},x:0.5,xanchor:'center'},
+    paper_bgcolor:'white',plot_bgcolor:'#fafbfc',
+    font:{size:11,color:'#2c3e50',family:"'Segoe UI',system-ui,sans-serif"},
+    margin:{l:80,r:110,t:55,b:50},
+    xaxis:{title:'Mês',tickfont:{size:11},showgrid:false,fixedrange:true},
+    yaxis:{title:'Loja',type:'category',autorange:'reversed',tickfont:{size:10},showgrid:false,fixedrange:true},
+    dragmode:false
+  };
+
+  plotResponsivo('hm-div',[trace],layBase,wMin,h);
   setStatus('✅ Mapa de Calor gerado!');
 }
 
@@ -1289,7 +1399,8 @@ function gerarAnomalias(){
   const c=cols(modo_consumo); const colReal=c.realizado;
   const sigma=parseFloat($('an-sigma').value)||2;
   const pfx=modo_consumo?'':'R$ ';
-  const unidade=detectarUnidade(f.conta);
+  // unidade só faz sentido no modo consumo — no financeiro sempre vazio
+  const unidade=modo_consumo?detectarUnidade(f.conta):'';
 
   let df=DADOS.filter(x=>!x['Regional']||String(x['Regional']).toLowerCase()!=='adm');
   df=aplicarFiltros(df,f.regional,f.conta,f.loja,f.pacote);
@@ -1350,30 +1461,51 @@ function gerarAnomalias(){
   if(xS.length) traces.push({type:'bar',name:'⬜ Histórico insuficiente',x:xS,y:xS.map(l=>lojasTotal[l]),marker:{color:'#94a3b8',opacity:.55,line:{color:'#475569',width:.4}},customdata:xS.map(l=>lojasHover[l]),hovertemplate:'%{customdata}<extra></extra>'});
   if(xA.length) traces.push({type:'bar',name:'⚠️ Anomalia',x:xA,y:xA.map(l=>lojasTotal[l]),marker:{color:'#ef4444',opacity:.92,line:{color:'#991b1b',width:1.5}},customdata:xA.map(l=>lojasHover[l]),hovertemplate:'%{customdata}<extra></extra>',text:Array(xA.length).fill('⚠️'),textposition:'outside',textfont:{size:11}});
 
-  const lay=baseLayout(`Anomalias por Loja — 2026 (Sensibilidade ${sigma}σ)`,'Realizado Total 2026 (R$)',490);
-  lay.barmode='group'; lay.xaxis={title:'Loja',type:'category',showgrid:false,tickangle:-45,tickfont:{size:10},automargin:true};
-  lay.margin={l:65,r:30,t:55,b:90}; lay.legend={orientation:'h',y:-0.22,x:0.5,xanchor:'center',font:{size:10}};
+  const nLojas=sorted.length;
+  const wMin=Math.max(900, 120+nLojas*20);
+  const h=520;
+
+  const eixoY=modo_consumo
+    ? (unidade?`Consumo Total 2026 (${unidade})`:'Consumo Total 2026')
+    : 'Realizado Total 2026 (R$)';
+  const tickFmt=modo_consumo?',.3s':',.3s'; // ambos abreviado; prefixo R$ só no hover
+
+  const layBase={
+    title:{text:`Anomalias por Loja — 2026 (Sensibilidade ${sigma}σ)`,font:{size:14,color:'#2c3e50'},x:0.5,xanchor:'center'},
+    paper_bgcolor:'white',plot_bgcolor:'#fafbfc',
+    font:{size:11,color:'#2c3e50',family:"'Segoe UI',system-ui,sans-serif"},
+    margin:{l:70,r:30,t:55,b:100},
+    barmode:'group',
+    xaxis:{title:'Loja',type:'category',showgrid:false,tickangle:-45,tickfont:{size:10},automargin:false,fixedrange:true},
+    yaxis:{title:eixoY,gridcolor:'#ecf0f1',tickfont:{size:10},tickformat:tickFmt,fixedrange:true},
+    legend:{orientation:'h',y:-0.22,x:0.5,xanchor:'center',font:{size:10}},
+    hoverlabel:{bgcolor:'white',bordercolor:'#dee2e6',font:{size:12,color:'#2c3e50'}},
+    dragmode:false
+  };
 
   const info=$('an-info');
   if(anomalias.length){
     info.textContent=`🚨 ${anomalias.length} anomalia(s) detectada(s) em ${new Set(anomalias.map(a=>a.loja)).size} loja(s)`;
     info.style.cssText='display:block;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700;color:#dc2626;font-size:13px';
-    let html=`<div class="tbl-wrap"><table><thead><tr><th>Loja</th><th>Total 2026</th><th>Média Histórica Mensal</th><th>Desvio Total</th><th>Z-score Máx.</th></tr></thead><tbody>`;
+    const colTit=modo_consumo?(unidade?`Total 2026 (${unidade})`:'Total 2026'):'Total 2026 (R$)';
+    let html=`<div class="tbl-wrap"><table><thead><tr><th>Loja</th><th>${colTit}</th><th>Média Histórica Mensal</th><th>Desvio Total</th><th>Z-score Máx.</th></tr></thead><tbody>`;
     anomalias.sort((a,b)=>b.z-a.z).slice(0,50).forEach(a=>{
       const cor=a.desvio>0?'#dc2626':'#2563eb', sinal=a.desvio>0?'+':'-';
-      html+=`<tr><td><strong>Loja ${a.loja}</strong></td><td>${fmtAbrev(a.valor)}</td><td>${fmtAbrev(a.media)}</td><td style="color:${cor};font-weight:700">${sinal}${fmtAbrev(Math.abs(a.desvio))}</td><td style="color:${cor};font-weight:700">${a.z.toFixed(2)}σ</td></tr>`;
+      const fmtV=v=>modo_consumo?fmtAbrev(v)+(unidade?' '+unidade:''):'R$ '+fmtAbrev(v);
+      html+=`<tr><td><strong>Loja ${a.loja}</strong></td><td>${fmtV(a.valor)}</td><td>${fmtV(a.media)}</td><td style="color:${cor};font-weight:700">${sinal}${fmtV(Math.abs(a.desvio))}</td><td style="color:${cor};font-weight:700">${a.z.toFixed(2)}σ</td></tr>`;
     });
     html+='</tbody></table></div>'; $('an-table').innerHTML=html;
   } else {
     info.textContent='✅ Nenhuma anomalia detectada com a sensibilidade selecionada.';
     info.style.cssText='display:block;background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-weight:700;color:#16a34a;font-size:13px';
   }
-  renderPlotly('an-div',{data:traces,layout:lay});
+
+  plotResponsivo('an-div',traces,layBase,wMin,h);
   setStatus(`✅ Análise concluída — ${anomalias.length} anomalia(s)`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EFICIÊNCIA — fiel ao Python gerar_eficiencia
+// EFICIÊNCIA — 4 gráficos fiel ao Python
 // ─────────────────────────────────────────────────────────────────────────────
 function gerarEficiencia(){
   if(!DADOS.length){ alert('Importe uma planilha primeiro.'); return; }
@@ -1387,23 +1519,32 @@ function gerarEficiencia(){
   let df=DADOS.filter(x=>!x['Regional']||String(x['Regional']).toLowerCase()!=='adm');
   df=aplicarFiltros(df,f.regional,f.conta,f.loja,f.pacote);
   df=df.filter(x=>x._date.getFullYear()===2026);
+  if(f.mes&&f.mes!=='Todos os meses') df=filtrarMes(df,f.mes);
 
-  if(!df.some(x=>x[colConsR]&&x[colConsO])){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Colunas "Consumo Realizado" e "Consumo Orçado" necessárias.</p></div></div>'; return; }
+  if(!df.length){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Sem dados de 2026.</p></div></div>'; return; }
+  if(!df.some(x=>x[colConsR]>0)){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Coluna "Consumo Realizado" necessária. Selecione uma conta de energia/gás.</p></div></div>'; return; }
 
   const unidade=detectarUnidade(f.conta)||'un';
-  const lojas=[...new Set(df.map(x=>x['Nº Loja']).filter(Boolean))];
+  const pfx=modo_consumo?'':'R$ ';
+
+  // Agrupa apenas linhas com consumo real > 0
+  const dfCons=df.filter(x=>x[colConsR]&&x[colConsR]>0);
+  const lojas=[...new Set(dfCons.map(x=>x['Nº Loja']).filter(Boolean))];
   let dl=lojas.map(l=>{
-    const rows=df.filter(x=>x['Nº Loja']===l);
+    const rows=dfCons.filter(x=>x['Nº Loja']===l);
     const real=rows.reduce((a,x)=>a+(x[colReal]||0),0);
     const consR=rows.reduce((a,x)=>a+(x[colConsR]||0),0);
     const orc=rows.reduce((a,x)=>a+(x[colOrc]||0),0);
     const consO=rows.reduce((a,x)=>a+(x[colConsO]||0),0);
-    return {l:String(l),real,consR,orc,consO,tarReal:consR>0?real/consR:NaN,tarMeta:consO>0?orc/consO:NaN};
+    return {l:String(l),real,consR,orc,consO,
+      tarReal:consR>0?real/consR:NaN,
+      tarMeta:consO>0?orc/consO:NaN};
   }).filter(x=>!isNaN(x.tarReal));
 
   if(!dl.length){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Sem dados suficientes.</p></div></div>'; return; }
 
   const mediaTar=dl.reduce((a,x)=>a+x.tarReal,0)/dl.length;
+  const mediaCons=dl.reduce((a,x)=>a+x.consR,0)/dl.length;
   const melhor=dl.reduce((a,b)=>a.tarReal<b.tarReal?a:b);
   const pior=dl.reduce((a,b)=>a.tarReal>b.tarReal?a:b);
   const spread=pior.tarReal-melhor.tarReal;
@@ -1417,28 +1558,184 @@ function gerarEficiencia(){
     <div class="kpi-card ${nAcima>dl.length/2?'red':'purple'}"><div class="kpi-title">Lojas Acima da Média</div><div class="kpi-value">${nAcima} / ${dl.length}</div></div>`;
   $('ef-kpi').style.display='block';
 
+  // ── Gráfico 1: Ranking Tarifa Efetiva ──────────────────────────────────────
   const dlRank=[...dl].sort((a,b)=>b.tarReal-a.tarReal);
   const coresRank=dlRank.map(x=>x.tarReal>mediaTar*1.1?'#ef4444':x.tarReal>mediaTar?'#f59e0b':'#10b981');
-  const figRank={data:[{type:'bar',x:dlRank.map(x=>x.l),y:dlRank.map(x=>x.tarReal),name:'Tarifa Efetiva',
-    marker:{color:coresRank,line:{color:'#1e293b',width:.5}},
-    text:dlRank.map(x=>x.tarReal.toFixed(3)),textposition:'outside',textfont:{size:9},
-    hovertemplate:dlRank.map(x=>`<b>Loja ${x.l}</b><br>Tarifa: ${x.tarReal.toFixed(4)} R$/${unidade}<br>${x.tarReal>mediaTar?'⚠️ Acima':'✅ Abaixo'} da média<extra></extra>`)}],
-    layout:{...baseLayout(`Ranking Tarifa Efetiva — 2026`,`R$/${unidade}`,420),xaxis:{type:'category',tickangle:-45,showgrid:false,tickfont:{size:10}}}};
-  figRank.layout.shapes=[{type:'line',x0:-0.5,x1:dlRank.length-.5,y0:mediaTar,y1:mediaTar,line:{color:'#64748b',width:1.5,dash:'dot'}}];
+  const trRank=[
+    {type:'bar',x:dlRank.map(x=>x.l),y:dlRank.map(x=>x.tarReal),name:'Tarifa Efetiva',
+      marker:{color:coresRank,line:{color:'#1a3a52',width:0.4}},
+      customdata:dlRank.map(x=>`Loja ${x.l}<br>Tarifa Efetiva: ${x.tarReal.toFixed(4)} R$/${unidade}${!isNaN(x.tarMeta)?`<br>Tarifa Meta: ${x.tarMeta.toFixed(4)} R$/${unidade}`:''}<br>Média geral: ${mediaTar.toFixed(4)} R$/${unidade}<br>${x.tarReal>mediaTar?'⚠️ Acima':'✅ Abaixo'} da média`),
+      hovertemplate:'%{customdata}<extra></extra>',
+      text:dlRank.map(x=>x.tarReal.toFixed(4)),textposition:'outside',textfont:{size:8}},
+    {type:'scatter',x:dlRank.map(x=>x.l),y:Array(dlRank.length).fill(mediaTar),
+      mode:'lines',name:`Média (${mediaTar.toFixed(4)})`,
+      line:{color:'#6366f1',width:2,dash:'dash'},hoverinfo:'skip'}
+  ];
+  if(dl.some(x=>!isNaN(x.tarMeta))) trRank.push({
+    type:'scatter',x:dlRank.map(x=>x.l),y:dlRank.map(x=>isNaN(x.tarMeta)?null:x.tarMeta),
+    mode:'lines+markers',name:'Tarifa Meta',
+    line:{color:'#c0392b',width:1.5,dash:'dot'},marker:{size:5,color:'#c0392b'},
+    hovertemplate:'Meta: %{y:.4f}<extra></extra>'
+  });
+  const layRank=baseLayout(`Ranking Tarifa Efetiva por Loja — 2026`,`R$/${unidade}`,420);
+  layRank.xaxis={type:'category',tickangle:-45,tickfont:{size:10},showgrid:false,range:[-0.5,dlRank.length-.5]};
+  layRank.barmode='group';
+  const figRank={data:trRank,layout:layRank};
 
-  const figSc={data:[{type:'scatter',mode:'markers+text',x:dl.map(x=>x.consR),y:dl.map(x=>x.tarReal),
-    text:dl.map(x=>`Loja ${x.l}`),textposition:'top center',textfont:{size:9},
-    marker:{color:coresRank,size:10,line:{color:'#1e293b',width:.5}},
-    hovertemplate:dl.map(x=>`<b>Loja ${x.l}</b><br>Consumo: ${x.consR.toLocaleString('pt-BR',{maximumFractionDigits:0})} ${unidade}<br>Tarifa: ${x.tarReal.toFixed(4)} R$/${unidade}<extra></extra>`)}],
-    layout:{...baseLayout(`Scatter Consumo × Tarifa — 2026`,`R$/${unidade}`,420)}};
-  figSc.layout.xaxis={title:`Consumo (${unidade})`,showgrid:false,tickfont:{size:10}};
+  // ── Gráfico 2: Scatter Consumo × Tarifa com quadrantes ─────────────────────
+  const consV=dl.map(x=>x.consR), tarV=dl.map(x=>x.tarReal), lojasS=dl.map(x=>x.l);
+  const coresSc=dl.map(x=>{
+    const altoCons=x.consR>mediaCons, cara=x.tarReal>mediaTar;
+    return altoCons&&cara?'#ef4444':altoCons&&!cara?'#f59e0b':!altoCons&&cara?'#8b5cf6':'#10b981';
+  });
+  const quadrantes=dl.map(x=>{
+    const altoCons=x.consR>mediaCons, cara=x.tarReal>mediaTar;
+    return altoCons&&cara?'⚠️ Alto consumo + Cara':altoCons&&!cara?'📦 Alto consumo + Barata':!altoCons&&cara?'💸 Baixo consumo + Cara':'✅ Baixo consumo + Barata';
+  });
+  const xMinSc=Math.min(...consV), xMaxSc=Math.max(...consV);
+  const yMinSc=Math.min(...tarV),  yMaxSc=Math.max(...tarV);
+  const xSpan=xMaxSc-xMinSc||Math.abs(xMaxSc)*.1||1;
+  const ySpan=yMaxSc-yMinSc||Math.abs(yMaxSc)*.1||.0001;
+  const xRange=[xMinSc-xSpan*.1, xMaxSc+xSpan*.1];
+  const yRange=[yMinSc-ySpan*.1, yMaxSc+ySpan*.1];
 
+  const laySc=baseLayout('Scatter: Consumo × Tarifa Efetiva — 2026 (Quadrantes)',`Tarifa Efetiva (R$/${unidade})`,460);
+  laySc.xaxis={title:`Consumo (${unidade})`,showgrid:true,gridcolor:'#f1f5f9',tickfont:{size:10}};
+  laySc.yaxis.showgrid=true;
+  laySc.shapes=[
+    {type:'line',x0:mediaCons,x1:mediaCons,y0:yRange[0],y1:yRange[1],line:{color:'#64748b',width:1.5,dash:'dash'}},
+    {type:'line',x0:xRange[0],x1:xRange[1],y0:mediaTar,y1:mediaTar,line:{color:'#64748b',width:1.5,dash:'dash'}}
+  ];
+  laySc.annotations=[
+    {x:xRange[1]*.97,y:yRange[1]*.98,xref:'x',yref:'y',text:'⚠️ Alto + Cara',showarrow:false,font:{size:10,color:'#ef4444'},bgcolor:'rgba(254,226,226,0.7)',bordercolor:'#ef4444',borderwidth:1,borderpad:3},
+    {x:xRange[0]*1.03,y:yRange[1]*.98,xref:'x',yref:'y',text:'💸 Baixo + Cara',showarrow:false,font:{size:10,color:'#8b5cf6'},bgcolor:'rgba(237,233,254,0.7)',bordercolor:'#8b5cf6',borderwidth:1,borderpad:3},
+    {x:xRange[1]*.97,y:yRange[0]*1.02,xref:'x',yref:'y',text:'📦 Alto + Barata',showarrow:false,font:{size:10,color:'#f59e0b'},bgcolor:'rgba(255,251,235,0.7)',bordercolor:'#f59e0b',borderwidth:1,borderpad:3},
+    {x:xRange[0]*1.03,y:yRange[0]*1.02,xref:'x',yref:'y',text:'✅ Baixo + Barata',showarrow:false,font:{size:10,color:'#10b981'},bgcolor:'rgba(220,252,231,0.7)',bordercolor:'#10b981',borderwidth:1,borderpad:3}
+  ];
+  const figSc={data:[{type:'scatter',mode:'markers+text',x:consV,y:tarV,
+    marker:{color:coresSc,size:13,symbol:'circle',line:{color:'#1a3a52',width:1.2},opacity:0.85},
+    text:lojasS,textposition:'top center',textfont:{size:9},
+    customdata:dl.map((x,i)=>`Loja ${x.l}<br>Consumo: ${x.consR.toLocaleString('pt-BR',{maximumFractionDigits:0})} ${unidade}<br>Tarifa Efetiva: ${x.tarReal.toFixed(4)} R$/${unidade}<br>${quadrantes[i]}`),
+    hovertemplate:'%{customdata}<extra></extra>',name:'Lojas'}],layout:laySc};
+
+  // ── Gráfico 3: Decomposição Preço vs Volume (se tiver orçado) ───────────────
+  let figDecomp=null;
+  const temOrc=dl.some(x=>!isNaN(x.tarMeta)&&x.consO>0);
+  if(temOrc){
+    const dl2=dl.filter(x=>!isNaN(x.tarMeta)&&x.consO>0).map(x=>({
+      ...x,
+      efPreco:(x.tarReal-x.tarMeta)*x.consO,
+      efVol:(x.consR-x.consO)*x.tarMeta,
+      desvioTotal:x.real-x.orc
+    })).sort((a,b)=>b.desvioTotal-a.desvioTotal);
+    if(dl2.length){
+      const lojasD=dl2.map(x=>x.l);
+      const layDecomp=baseLayout('Decomposição do Desvio: Preço vs Volume — 2026','Desvio (R$)',440);
+      layDecomp.barmode='stack';
+      layDecomp.xaxis={type:'category',tickangle:-45,tickfont:{size:10},showgrid:false};
+      layDecomp.shapes=[{type:'line',x0:-0.5,x1:dl2.length-.5,y0:0,y1:0,line:{color:'#94a3b8',width:1.5,dash:'dash'}}];
+      figDecomp={data:[
+        {type:'bar',name:'💸 Efeito Preço (Tarifa)',x:lojasD,y:dl2.map(x=>x.efPreco),
+          marker:{color:'#ef4444',opacity:.85,line:{color:'#991b1b',width:.5}},
+          customdata:dl2.map(x=>`Loja ${x.l}<br>Efeito Preço: ${pfx}${x.efPreco.toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>${x.efPreco>0?'⚠️ Problema no contrato':'✅ Tarifa favorável'}`),
+          hovertemplate:'%{customdata}<extra></extra>',
+          text:dl2.map(x=>fmtAbrev(x.efPreco,true)),textposition:'outside',textfont:{size:8}},
+        {type:'bar',name:'📦 Efeito Volume (Consumo)',x:lojasD,y:dl2.map(x=>x.efVol),
+          marker:{color:'#3b82f6',opacity:.85,line:{color:'#1e40af',width:.5}},
+          customdata:dl2.map(x=>`Loja ${x.l}<br>Efeito Volume: ${pfx}${x.efVol.toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>${x.efVol>0?'⚠️ Consumo excessivo':'✅ Consumo eficiente'}`),
+          hovertemplate:'%{customdata}<extra></extra>',
+          text:dl2.map(x=>fmtAbrev(x.efVol,true)),textposition:'outside',textfont:{size:8}},
+        {type:'scatter',name:'Desvio Total',x:lojasD,y:dl2.map(x=>x.desvioTotal),
+          mode:'markers',marker:{color:'#1e293b',size:10,symbol:'diamond',line:{color:'white',width:1.5}},
+          hovertemplate:'<b>%{x}</b><br>Desvio Total: %{y:,.0f}<extra></extra>'}
+      ],layout:layDecomp};
+    }
+  }
+
+  // ── Gráfico 4: Faixa de Dispersão da Tarifa Efetiva por Mês ─────────────────
+  const agEv={};
+  dfCons.forEach(x=>{
+    const l=x['Nº Loja'], m=x._date.getMonth()+1;
+    if(!agEv[l]) agEv[l]={};
+    if(!agEv[l][m]) agEv[l][m]={real:0,cons:0};
+    agEv[l][m].real+=(x[colReal]||0); agEv[l][m].cons+=(x[colConsR]||0);
+  });
+  // Tarifa por loja×mês
+  const tarifasPorMes={};
+  Object.entries(agEv).forEach(([l,meses])=>{
+    Object.entries(meses).forEach(([m,v])=>{
+      if(v.cons>0){ if(!tarifasPorMes[m]) tarifasPorMes[m]=[]; tarifasPorMes[m].push({l,tar:v.real/v.cons}); }
+    });
+  });
+  const mesesPresentes=Object.keys(tarifasPorMes).map(Number).sort((a,b)=>a-b);
+  const mesesLabels=mesesPresentes.map(m=>M_ABREV[m-1]);
+
+  const mins=[],maxs=[],q1s=[],q3s=[],medias=[];
+  mesesPresentes.forEach(m=>{
+    const vals=tarifasPorMes[m].map(x=>x.tar).sort((a,b)=>a-b);
+    mins.push(Math.min(...vals)); maxs.push(Math.max(...vals));
+    medias.push(vals.reduce((a,b)=>a+b,0)/vals.length);
+    const q1i=Math.floor(vals.length*.25), q3i=Math.floor(vals.length*.75);
+    q1s.push(vals[q1i]||vals[0]); q3s.push(vals[q3i]||vals[vals.length-1]);
+  });
+
+  const trEv=[];
+  trEv.push({type:'scatter',mode:'lines',x:[...mesesLabels,...[...mesesLabels].reverse()],y:[...maxs,...[...mins].reverse()],fill:'toself',fillcolor:'rgba(37,99,235,0.07)',line:{color:'rgba(0,0,0,0)'},showlegend:true,name:'Amplitude (min–máx)',hoverinfo:'skip'});
+  trEv.push({type:'scatter',mode:'lines',x:[...mesesLabels,...[...mesesLabels].reverse()],y:[...q3s,...[...q1s].reverse()],fill:'toself',fillcolor:'rgba(37,99,235,0.18)',line:{color:'rgba(0,0,0,0)'},showlegend:true,name:'Intervalo interquartil (Q1–Q3)',hoverinfo:'skip'});
+  trEv.push({type:'scatter',mode:'lines',x:mesesLabels,y:maxs,name:'Máximo',showlegend:false,line:{color:'rgba(37,99,235,0.25)',width:1,dash:'dot'},hovertemplate:`<b>Máx — %{x}</b><br>%{y:.4f} R$/${unidade}<extra></extra>`});
+  trEv.push({type:'scatter',mode:'lines',x:mesesLabels,y:mins,name:'Mínimo',showlegend:false,line:{color:'rgba(37,99,235,0.25)',width:1,dash:'dot'},hovertemplate:`<b>Mín — %{x}</b><br>%{y:.4f} R$/${unidade}<extra></extra>`});
+  trEv.push({type:'scatter',mode:'lines+markers+text',x:mesesLabels,y:medias,name:'Média Mensal',
+    line:{color:'#2563eb',width:3},marker:{color:'white',size:9,symbol:'circle',line:{color:'#2563eb',width:2.5}},
+    text:medias.map(v=>v.toFixed(4)),textposition:'top center',textfont:{size:9,color:'#2563eb'},
+    hovertemplate:`<b>Média — %{x}</b><br>%{y:.4f} R$/${unidade}<extra></extra>`});
+  // Loja destaque (maior tarifa média)
+  const medPorLoja={};
+  Object.entries(agEv).forEach(([l,meses])=>{
+    const tars=Object.entries(meses).filter(([,v])=>v.cons>0).map(([,v])=>v.real/v.cons);
+    if(tars.length) medPorLoja[l]=tars.reduce((a,b)=>a+b,0)/tars.length;
+  });
+  if(Object.keys(medPorLoja).length){
+    const lojaDestaque=Object.entries(medPorLoja).reduce((a,b)=>a[1]>b[1]?a:b)[0];
+    const tarifasDestaque=mesesPresentes.map(m=>{
+      const v=agEv[lojaDestaque]?.[m];
+      return v&&v.cons>0?v.real/v.cons:null;
+    });
+    if(tarifasDestaque.filter(v=>v!==null).length>=2) trEv.push({
+      type:'scatter',mode:'lines+markers',x:mesesLabels,y:tarifasDestaque,
+      name:`⚠ Loja ${lojaDestaque} (maior tarifa)`,
+      line:{color:'#ef4444',width:2,dash:'dash'},
+      marker:{color:'#ef4444',size:7,symbol:'diamond-open',line:{color:'#ef4444',width:2}},
+      hovertemplate:`<b>Loja ${lojaDestaque}</b><br>%{x}<br>%{y:.4f} R$/${unidade}<extra></extra>`
+    });
+  }
+  const layEv=baseLayout('Faixa de Dispersão da Tarifa Efetiva — 2026',`R$/${unidade}`,460);
+  layEv.xaxis={showgrid:false,tickangle:-30,tickfont:{size:10},type:'category',categoryorder:'array',categoryarray:mesesLabels};
+  layEv.yaxis.gridcolor='#ecf0f1';
+  layEv.legend={orientation:'h',y:-0.20,x:0.5,xanchor:'center',font:{size:10}};
+  if(mesesPresentes.length){
+    const amp=maxs[maxs.length-1]-mins[mins.length-1];
+    const mediaGeral=medias.reduce((a,b)=>a+b,0)/medias.length;
+    layEv.annotations=[anotacaoResumo(`Amplitude no ${mesesLabels[mesesLabels.length-1]}: ${amp.toFixed(4)} R$/${unidade}  |  Média geral: ${mediaGeral.toFixed(4)} R$/${unidade}`,'#2563eb')];
+  }
+  const figEv={data:trEv,layout:layEv};
+
+  // ── Monta grid ──────────────────────────────────────────────────────────────
   grid.innerHTML='';
-  [{id:'ef-rank',fig:figRank},{id:'ef-sc',fig:figSc}].forEach(({id,fig})=>{
+  const figs=[
+    {id:'ef-rank',fig:figRank},
+    {id:'ef-sc',fig:figSc},
+    ...(figDecomp?[{id:'ef-decomp',fig:figDecomp}]:[]),
+    {id:'ef-ev',fig:figEv}
+  ];
+  figs.forEach(({id,fig})=>{
     const card=document.createElement('div'); card.className='chart-card';
-    const inner=document.createElement('div'); inner.id=id; inner.style.minHeight='420px';
+    const inner=document.createElement('div'); inner.id=id; inner.style.minHeight='440px';
     card.appendChild(inner); grid.appendChild(card); renderPlotly(id,fig);
   });
+  if(!figDecomp){
+    $('ef-aviso').textContent='ℹ️ Decomposição indisponível: requer colunas Orçado e Consumo Orçado preenchidos para 2026.';
+    $('ef-aviso').style.display='block';
+  }
   setStatus(`✅ Eficiência calculada — ${dl.length} lojas analisadas`);
 }
 
@@ -1457,7 +1754,10 @@ if(uploadArea){
   });
 }
 
-// Expõe funções globalmente
+// Resize todos os gráficos ao redimensionar a janela
+window.addEventListener('resize', ()=>{
+  document.querySelectorAll('.js-plotly-plot').forEach(p=>{ try{ Plotly.Plots.resize(p); }catch(e){} });
+});
 Object.assign(window,{
   importarPlanilha,gerarGraficos,calcularIndicadores,calcularDetalhamento,
   escalonarProposta2027,exportarExcel,exportarEscalonamento,
