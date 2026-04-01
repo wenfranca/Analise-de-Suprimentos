@@ -30,7 +30,7 @@ loadScript(
 ['importarPlanilha','gerarGraficos','calcularIndicadores','calcularDetalhamento','escalonarProposta2027',
  'exportarExcel','exportarEscalonamento','gerarDispersao','gerarBenchmark','gerarTendencia','gerarYoY',
  'gerarPareto','gerarHeatmap','gerarAnomalias','gerarEficiencia','setModo','showTab',
- 'filtrarContasPorPacote'].forEach(fn=>{ window[fn]=function(){ alert('Aguarde — carregando…'); }; });
+ 'filtrarContasPorPacote','verificarSenha'].forEach(fn=>{ window[fn]=function(){ alert('Aguarde — carregando…'); }; });
 </script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -101,14 +101,48 @@ tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px 
 </head>
 <body>
 
+<!-- SENHA -->
+<div id="ov-senha" class="overlay">
+  <div class="modal">
+    <div style="font-size:44px;margin-bottom:10px">🔐</div>
+    <h2>Acesso Restrito</h2>
+    <p>Sistema de Análise de Suprimentos®<br>Wendell França</p>
+    <input type="password" id="inp-senha" placeholder="Digite a senha…"
+      style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;text-align:center;margin-bottom:14px;transition:.2s;outline:none"
+      onkeydown="if(event.key==='Enter')verificarSenha()">
+    <button class="btn btn-primary" style="width:100%;padding:10px;font-size:14px" onclick="verificarSenha()">Entrar</button>
+    <p id="msg-senha" style="color:#ef4444;font-size:12px;margin-top:10px;min-height:18px"></p>
+  </div>
+</div>
+
 <!-- AVISO LEGAL -->
 <div id="ov-aviso" class="overlay" style="display:none">
-  <div class="modal" style="max-width:540px;text-align:left">
-    <h2 style="text-align:center;margin-bottom:14px">⚖️ Aviso Legal</h2>
-    <p><strong>© 2025 Wendell França®</strong> — Todos os direitos reservados.</p><br>
-    <p>É expressamente proibida a utilização, reprodução, modificação ou distribuição deste código, total ou parcialmente, sem o consentimento prévio e por escrito do desenvolvedor.</p><br>
-    <p>Este código está protegido pela <strong>Lei de Direitos Autorais (Lei nº 9.610/98)</strong> e tratados internacionais.</p>
-    <br><div style="text-align:center"><button class="btn btn-primary" onclick="document.getElementById('ov-aviso').style.display='none'">Entendi</button></div>
+  <div class="modal" style="max-width:580px;text-align:left;max-height:90vh;overflow-y:auto">
+    <h2 style="text-align:center;margin-bottom:16px">⚖️ Aviso Legal & Privacidade</h2>
+
+    <p style="font-size:12px;font-weight:700;color:#1e293b;margin-bottom:4px">📋 DIREITOS AUTORAIS</p>
+    <p style="font-size:12px;color:#475569;line-height:1.6;margin-bottom:12px">
+      <strong>© 2025–2026 Wendell França®</strong> — Todos os direitos reservados.<br>
+      Este software é protegido pela <strong>Lei de Direitos Autorais (Lei nº 9.610/98)</strong> e tratados internacionais de propriedade intelectual. É expressamente proibida a utilização, reprodução, modificação, distribuição ou engenharia reversa deste código, total ou parcialmente, sem autorização prévia e por escrito do desenvolvedor.
+    </p>
+
+    <p style="font-size:12px;font-weight:700;color:#1e293b;margin-bottom:4px">🔒 PRIVACIDADE E PROTEÇÃO DE DADOS (LGPD)</p>
+    <p style="font-size:12px;color:#475569;line-height:1.6;margin-bottom:12px">
+      Em conformidade com a <strong>Lei Geral de Proteção de Dados (Lei nº 13.709/2020 — LGPD)</strong>:<br>
+      • Os dados carregados neste sistema são processados <strong>exclusivamente no seu navegador</strong> (client-side), não sendo transmitidos, armazenados ou compartilhados com servidores externos.<br>
+      • As informações financeiras e operacionais tratadas são de uso interno e têm caráter estritamente confidencial.<br>
+      • A base legal do tratamento é o <strong>legítimo interesse</strong> da organização para fins de análise e controle de gestão (Art. 7º, IX, LGPD).<br>
+      • O usuário é responsável por garantir que o uso dos dados está em conformidade com as políticas internas de segurança da informação.
+    </p>
+
+    <p style="font-size:12px;font-weight:700;color:#1e293b;margin-bottom:4px">⚠️ ISENÇÃO DE RESPONSABILIDADE</p>
+    <p style="font-size:12px;color:#475569;line-height:1.6;margin-bottom:16px">
+      As análises geradas por este sistema têm caráter informativo e de suporte à decisão. O desenvolvedor não se responsabiliza por decisões tomadas com base nas informações apresentadas. A acurácia dos resultados depende da qualidade e integridade dos dados fornecidos pelo usuário.
+    </p>
+
+    <div style="text-align:center">
+      <button class="btn btn-primary" style="padding:9px 32px;font-size:13px" onclick="document.getElementById('ov-aviso').style.display='none'">Li e Concordo</button>
+    </div>
   </div>
 </div>
 
@@ -307,6 +341,19 @@ function renderPlotly(divId, fig){
   Plotly.newPlot(divId, fig.data, fig.layout, PLOTLY_CFG);
 }
 
+function verificarSenha(){
+  const senha=$('inp-senha').value;
+  if(senha==='@#7263Wf'){
+    $('ov-senha').style.display='none';
+    setTimeout(()=>{ $('ov-aviso').style.display='flex'; },600);
+  } else {
+    $('msg-senha').textContent='❌ Senha incorreta!';
+    $('inp-senha').style.borderColor='#ef4444';
+    $('inp-senha').value='';
+    setTimeout(()=>{ $('inp-senha').style.borderColor=''; $('msg-senha').textContent=''; },1500);
+  }
+}
+
 function showTab(id,el){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -499,7 +546,6 @@ function importarPlanilha(input){
       $('file-name-badge').textContent=file.name; $('file-badge').style.display='';
       $('chart-grid').innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><div class="icon">📊</div><p>Planilha carregada! Clique em <strong>Gerar Gráficos</strong>.</p></div></div>';
       setStatus(`✅ Planilha carregada — ${DADOS.length.toLocaleString('pt-BR')} registros | ${lojas.length} lojas | ${contas.length} contas`);
-      setTimeout(()=>{ $('ov-aviso').style.display='flex'; },400);
     }catch(err){ console.error(err); setStatus('❌ Erro: '+err.message,false); }
   };
   reader.readAsArrayBuffer(file);
@@ -1174,7 +1220,8 @@ function gerarYoY(){
 
   const customHover=labels.map((m,i)=>{
     const diff=vp[i]?(va[i]-vp[i])/Math.abs(vp[i])*100:null;
-    const varStr=diff!==null?(diff>=0?`🟢 +${diff.toFixed(1)}%`:`🔴 ${diff.toFixed(1)}%`):'—';
+    // Custo: variação positiva = gastou mais = 🔴 ruim; negativa = gastou menos = 🟢 bom
+    const varStr=diff!==null?(diff>0?`🔴 +${diff.toFixed(1)}%`:`🟢 ${diff.toFixed(1)}%`):'—';
     return `<b>${m}</b><br>${anoAnt}: ${pfx}${vp[i].toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>${anoAt}: ${pfx}${va[i].toLocaleString('pt-BR',{maximumFractionDigits:0})}<br>──────────────<br>Variação: ${varStr}<extra></extra>`;
   });
 
@@ -1763,7 +1810,7 @@ Object.assign(window,{
   escalonarProposta2027,exportarExcel,exportarEscalonamento,
   gerarDispersao,gerarBenchmark,gerarTendencia,gerarYoY,
   gerarPareto,gerarHeatmap,gerarAnomalias,gerarEficiencia,
-  setModo,showTab,filtrarContasPorPacote
+  setModo,showTab,filtrarContasPorPacote,verificarSenha
 });
 
 }; // fim _pendingInit
