@@ -29,7 +29,7 @@ loadScript(
 // Stubs globais — evitam ReferenceError antes das libs carregarem
 ['importarPlanilha','gerarGraficos','calcularIndicadores','calcularDetalhamento','escalonarProposta2027',
  'exportarExcel','exportarEscalonamento','gerarDispersao','gerarBenchmark','gerarTendencia','gerarYoY',
- 'gerarPareto','gerarHeatmap','gerarAnomalias','gerarEficiencia','setModo','showTab',
+ 'gerarPareto','gerarHeatmap','gerarAnomalias','gerarEficiencia','gerarCluster','setModo','showTab',
  'filtrarContasPorPacote','verificarSenha'].forEach(fn=>{ window[fn]=function(){ alert('Aguarde — carregando…'); }; });
 </script>
 <style>
@@ -185,6 +185,7 @@ tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px 
   <div class="tab" onclick="showTab('heatmap',this)">🌡️ Mapa de Calor</div>
   <div class="tab" onclick="showTab('anomalias',this)">🚨 Anomalias</div>
   <div class="tab" onclick="showTab('eficiencia',this)">⚡ Eficiência</div>
+  <div class="tab" onclick="showTab('cluster',this)">🔵 Cluster</div>
 </div>
 
 <div id="content">
@@ -299,9 +300,55 @@ tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px 
     <div id="ef-aviso" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:#92400e"></div>
   </div>
 
-</div>
+  <!-- CLUSTER -->
+  <div id="panel-cluster" class="panel">
+    <div class="adv-action">
+      <div class="cg">
+        <label>Nº de grupos (K):</label>
+        <select id="cl-k">
+          <option value="auto" selected>Auto (Elbow)</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>
+      </div>
+      <div class="cg">
+        <label>Variáveis:</label>
+        <select id="cl-vars">
+          <option value="combinado" selected>Financeiro + Eficiência</option>
+          <option value="financeiro">Financeiro puro</option>
+          <option value="eficiencia">Eficiência energética</option>
+        </select>
+      </div>
+      <div class="cg">
+        <label>Ano:</label>
+        <select id="cl-ano"><option selected>2026</option><option>2025</option><option>2024</option></select>
+      </div>
+      <button class="btn btn-success" onclick="gerarCluster()">🔵 Gerar Cluster</button>
+    </div>
 
-<div id="status-bar">
+    <!-- KPIs do cluster -->
+    <div id="cl-kpi" style="display:none;margin-bottom:12px">
+      <div class="kpi-grid" id="cl-kpi-grid"></div>
+    </div>
+
+    <!-- Gráficos 2×2 -->
+    <div class="chart-grid" id="cl-grid">
+      <div class="chart-card" style="grid-column:1/-1">
+        <div class="empty"><div class="icon">🔵</div>
+          <p>Clique em <strong>Gerar Cluster</strong> para agrupar lojas por perfil financeiro e energético</p>
+          <small style="display:block;margin-top:8px;color:#94a3b8">Requer dados de Realizado e Consumo Realizado na planilha</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela de lojas por cluster -->
+    <div id="cl-table" style="margin-top:14px"></div>
+  </div>
+
+</div>
   <span><span id="status-dot"></span><span id="status-txt">📂 Importe uma planilha Excel para começar</span></span>
   <span style="color:#94a3b8">Sistema desenvolvido por Wendell França® &nbsp;|&nbsp; Versão Web</span>
 </div>
@@ -1801,6 +1848,294 @@ if(uploadArea){
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CLUSTER DE LOJAS — K-Means com Elbow Method
+// Variáveis: financeiro + eficiência energética combinados
+// ─────────────────────────────────────────────────────────────────────────────
+function gerarCluster(){
+  if(!DADOS.length){ alert('Importe uma planilha primeiro.'); return; }
+  const grid=$('cl-grid');
+  grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><span class="spinner"></span><p style="margin-top:12px">Calculando clusters…</p></div></div>';
+  $('cl-kpi').style.display='none'; $('cl-table').innerHTML='';
+
+  const f=getFilters();
+  const colReal='Realizado', colConsR='Consumo Realizado', colOrc='Orçado', colConsO='Consumo Orçado';
+  const anoSel=parseInt($('cl-ano').value)||2026;
+  const modoVars=$('cl-vars').value;
+  const kParam=$('cl-k').value;
+
+  let df=DADOS.filter(x=>!x['Regional']||String(x['Regional']).toLowerCase()!=='adm');
+  df=aplicarFiltros(df,f.regional,f.conta,f.loja,f.pacote);
+  df=df.filter(x=>x._date.getFullYear()===anoSel);
+
+  if(!df.length){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Sem dados para o ano selecionado.</p></div></div>'; return; }
+
+  // ── Agrega por loja ────────────────────────────────────────────────────────
+  const lojas=[...new Set(df.map(x=>x['Nº Loja']).filter(Boolean))];
+  const pontos=[];
+
+  lojas.forEach(l=>{
+    const dl=df.filter(x=>x['Nº Loja']===l);
+    const real=dl.reduce((a,x)=>a+(x[colReal]||0),0);
+    const orc=dl.reduce((a,x)=>a+(x[colOrc]||0),0);
+    const consR=dl.reduce((a,x)=>a+(x[colConsR]||0),0);
+    const consO=dl.reduce((a,x)=>a+(x[colConsO]||0),0);
+    const meses=new Set(dl.map(x=>x._date.getMonth()));
+    const nm=meses.size||1;
+
+    // Métricas por mês (normaliza pelo período)
+    const realMes=real/nm;
+    const desvPct=orc>0?(real-orc)/orc*100:0;
+    const tarifa=consR>0?real/consR:null;
+    const consumoMes=consR/nm;
+
+    // Volatilidade (CV) — desvio padrão dos meses / média
+    const byM={};
+    dl.forEach(x=>{ const k=x._date.getMonth(); byM[k]=(byM[k]||0)+(x[colReal]||0); });
+    const vals=Object.values(byM);
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std=Math.sqrt(vals.map(v=>(v-mean)**2).reduce((a,b)=>a+b,0)/vals.length);
+    const cv=mean>0?std/mean*100:0;
+
+    // Crescimento YoY vs ano anterior
+    const dfAnt=DADOS.filter(x=>x['Nº Loja']===l&&x._date.getFullYear()===anoSel-1);
+    const realAnt=dfAnt.reduce((a,x)=>a+(x[colReal]||0),0);
+    const yoy=realAnt>0?(real-realAnt)/realAnt*100:0;
+
+    pontos.push({
+      loja:String(l),
+      real, realMes, desvPct, cv, yoy,
+      tarifa, consumoMes, consR,
+      // Regional para colorir no scatter
+      regional:dl[0]?.['Regional']||'—'
+    });
+  });
+
+  if(pontos.length<3){ grid.innerHTML='<div class="chart-card" style="grid-column:1/-1"><div class="empty"><p style="color:#ef4444">Mínimo de 3 lojas necessário para clustering.</p></div></div>'; return; }
+
+  // ── Seleciona variáveis conforme modo ──────────────────────────────────────
+  function getFeatures(p){
+    if(modoVars==='financeiro') return [p.realMes, p.desvPct, p.cv, p.yoy];
+    if(modoVars==='eficiencia') return [p.tarifa??0, p.consumoMes, p.cv];
+    // combinado
+    return [p.realMes, p.desvPct, p.cv, p.yoy, p.tarifa??0, p.consumoMes];
+  }
+
+  // ── Normalização Z-score ───────────────────────────────────────────────────
+  const features=pontos.map(p=>getFeatures(p));
+  const nFeat=features[0].length;
+  const means=Array.from({length:nFeat},(_,j)=>features.reduce((a,f)=>a+f[j],0)/features.length);
+  const stds=Array.from({length:nFeat},(_,j)=>{
+    const m=means[j];
+    const s=Math.sqrt(features.reduce((a,f)=>a+(f[j]-m)**2,0)/features.length);
+    return s||1;
+  });
+  const norm=features.map(f=>f.map((v,j)=>(v-means[j])/stds[j]));
+
+  // ── K-Means ────────────────────────────────────────────────────────────────
+  function dist2(a,b){ return a.reduce((s,v,i)=>s+(v-b[i])**2,0); }
+
+  function kmeans(data,k,maxIter=100){
+    // Inicialização K-Means++ 
+    const cents=[data[Math.floor(Math.random()*data.length)]];
+    while(cents.length<k){
+      const dists=data.map(p=>Math.min(...cents.map(c=>dist2(p,c))));
+      const total=dists.reduce((a,b)=>a+b,0);
+      let r=Math.random()*total, i=0;
+      while(r>0){ r-=dists[i++]; }
+      cents.push(data[i-1]);
+    }
+    let labels=new Array(data.length).fill(0);
+    for(let iter=0;iter<maxIter;iter++){
+      // Atribui cada ponto ao centróide mais próximo
+      const newLabels=data.map(p=>cents.reduce((bestK,c,ki)=>dist2(p,c)<dist2(p,cents[bestK])?ki:bestK,0));
+      // Recalcula centróides
+      const newCents=Array.from({length:k},(_,ki)=>{
+        const pts=data.filter((_,i)=>newLabels[i]===ki);
+        if(!pts.length) return cents[ki];
+        return Array.from({length:data[0].length},(_,j)=>pts.reduce((a,p)=>a+p[j],0)/pts.length);
+      });
+      const changed=newLabels.some((l,i)=>l!==labels[i]);
+      labels=newLabels; cents.splice(0,k,...newCents);
+      if(!changed) break;
+    }
+    const inertia=data.reduce((s,p,i)=>s+dist2(p,cents[labels[i]]),0);
+    return {labels,cents,inertia};
+  }
+
+  // ── Elbow: testa K=2..6, escolhe o cotovelo ────────────────────────────────
+  let kFinal;
+  if(kParam==='auto'){
+    const inercias=[];
+    for(let k=2;k<=6;k++){
+      // Roda 5x e pega a melhor (K-Means é estocástico)
+      let best=null;
+      for(let r=0;r<5;r++){ const res=kmeans(norm,k); if(!best||res.inertia<best.inertia) best=res; }
+      inercias.push({k,inertia:best.inertia});
+    }
+    // Cotovelo: maior queda relativa
+    let maxDrop=0; kFinal=3;
+    for(let i=1;i<inercias.length;i++){
+      const drop=inercias[i-1].inertia-inercias[i].inertia;
+      const dropRel=drop/inercias[0].inertia;
+      if(dropRel>maxDrop){ maxDrop=dropRel; kFinal=inercias[i-1].k; }
+    }
+  } else {
+    kFinal=parseInt(kParam);
+  }
+
+  // Roda K-Means final 10x e pega o melhor
+  let resultado=null;
+  for(let r=0;r<10;r++){
+    const res=kmeans(norm,kFinal);
+    if(!resultado||res.inertia<resultado.inertia) resultado=res;
+  }
+  const {labels}=resultado;
+
+  // ── Ordena clusters por realMes médio (cluster 0 = maior gasto) ────────────
+  const mediasPorCluster=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter((_,i)=>labels[i]===k);
+    return pts.reduce((a,p)=>a+p.realMes,0)/(pts.length||1);
+  });
+  const ordemClusters=[...Array(kFinal).keys()].sort((a,b)=>mediasPorCluster[b]-mediasPorCluster[a]);
+  const clusterFinal=labels.map(l=>ordemClusters.indexOf(l));
+
+  // ── Cores e rótulos dos clusters ──────────────────────────────────────────
+  const CORES=['#ef4444','#f59e0b','#3b82f6','#10b981','#8b5cf6','#06b6d4'];
+  const ICONES=['🔴','🟠','🔵','🟢','🟣','🩵'];
+  const LABELS_PADRAO=['Alto Gasto','Gasto Moderado','Gasto Médio','Eficiente','Muito Eficiente','Outlier'];
+
+  // Enriquece pontos com cluster
+  pontos.forEach((p,i)=>{ p.cluster=clusterFinal[i]; });
+
+  // ── KPIs resumo ───────────────────────────────────────────────────────────
+  const kpiCards=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter(p=>p.cluster===k);
+    const mediaReal=pts.reduce((a,p)=>a+p.realMes,0)/pts.length;
+    const mediaTar=pts.filter(p=>p.tarifa).reduce((a,p)=>a+(p.tarifa||0),0)/(pts.filter(p=>p.tarifa).length||1);
+    const mediaCV=pts.reduce((a,p)=>a+p.cv,0)/pts.length;
+    return `<div class="kpi-card" style="border-left-color:${CORES[k]}">
+      <div class="kpi-title">${ICONES[k]} ${LABELS_PADRAO[k]} — ${pts.length} loja(s)</div>
+      <div class="kpi-value" style="font-size:14px">R$ ${fmtAbrev(mediaReal)}/mês</div>
+      <div class="kpi-sub">Tarifa: ${mediaTar>0?mediaTar.toFixed(4)+' R$/un':'—'} &nbsp;|&nbsp; CV: ${mediaCV.toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+  $('cl-kpi-grid').innerHTML=kpiCards;
+  $('cl-kpi').style.display='block';
+
+  // ── Gráfico 1: Scatter Gasto Mensal × Tarifa (principal) ──────────────────
+  const trScatter=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter(p=>p.cluster===k&&p.tarifa!==null);
+    return {
+      type:'scatter', mode:'markers+text', name:`${ICONES[k]} ${LABELS_PADRAO[k]}`,
+      x:pts.map(p=>p.realMes), y:pts.map(p=>p.tarifa),
+      text:pts.map(p=>p.loja), textposition:'top center', textfont:{size:9},
+      marker:{color:CORES[k],size:13,symbol:'circle',line:{color:'#1e293b',width:1},opacity:0.85},
+      customdata:pts.map(p=>`<b>Loja ${p.loja}</b><br>Gasto/mês: R$ ${fmtAbrev(p.realMes)}<br>Tarifa: ${p.tarifa?p.tarifa.toFixed(4)+' R$/un':'—'}<br>CV: ${p.cv.toFixed(1)}%<br>YoY: ${p.yoy>=0?'+':''}${p.yoy.toFixed(1)}%<br>Cluster: ${LABELS_PADRAO[k]}`),
+      hovertemplate:'%{customdata}<extra></extra>'
+    };
+  }).filter(t=>t.x.length);
+
+  const layScatter=baseLayout(`Scatter — Gasto Mensal × Tarifa Efetiva (${anoSel})`,`Tarifa Efetiva (R$/un)`,460);
+  layScatter.xaxis={title:'Gasto Mensal Médio (R$)',showgrid:true,gridcolor:'#f1f5f9',tickfont:{size:10}};
+  layScatter.hovermode='closest';
+
+  // ── Gráfico 2: Boxplot gasto por cluster ──────────────────────────────────
+  const trBox=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter(p=>p.cluster===k);
+    return {
+      type:'box', name:`${ICONES[k]} ${LABELS_PADRAO[k]}`,
+      y:pts.map(p=>p.realMes),
+      marker:{color:CORES[k]}, boxmean:true,
+      hovertemplate:`<b>${LABELS_PADRAO[k]}</b><br>%{y:,.0f} R$/mês<extra></extra>`
+    };
+  });
+  const layBox=baseLayout(`Distribuição do Gasto Mensal por Cluster (${anoSel})`,'Gasto Mensal (R$)',420);
+  layBox.boxmode='group';
+
+  // ── Gráfico 3: Radar médio por cluster ────────────────────────────────────
+  const RADAR_LABELS=['Gasto/mês','Desvio %','Volatilidade','YoY %','Tarifa','Consumo/mês'];
+  const trRadar=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter(p=>p.cluster===k);
+    const media=dim=>pts.reduce((a,p)=>a+(getFeatures(p)[dim]||0),0)/pts.length;
+    // Normaliza 0-100 para radar
+    const rawVals=Array.from({length:nFeat},(_,j)=>media(j));
+    const absMax=rawVals.map((v,j)=>Math.max(Math.abs(means[j]+stds[j]*2),0.001));
+    const pct=rawVals.map((v,j)=>Math.min(100,Math.max(0,(v-means[j]+stds[j]*2)/(stds[j]*4)*100)));
+    const labs=RADAR_LABELS.slice(0,nFeat);
+    return {
+      type:'scatterpolar', name:`${ICONES[k]} ${LABELS_PADRAO[k]}`,
+      r:[...pct,...[pct[0]]], theta:[...labs,...[labs[0]]],
+      fill:'toself', fillcolor:CORES[k]+'33',
+      line:{color:CORES[k],width:2},
+      hovertemplate:`<b>${LABELS_PADRAO[k]}</b><br>%{theta}: %{r:.1f}<extra></extra>`
+    };
+  });
+  const layRadar={
+    title:{text:`Perfil Médio por Cluster (${anoSel})`,font:{size:14,color:'#2c3e50'},x:0.5,xanchor:'center'},
+    paper_bgcolor:'white',plot_bgcolor:'white',
+    font:{size:11,color:'#2c3e50',family:"'Segoe UI',system-ui,sans-serif"},
+    height:420,
+    polar:{radialaxis:{visible:true,range:[0,100],tickfont:{size:9}},angularaxis:{tickfont:{size:10}}},
+    legend:{orientation:'h',y:-0.15,x:0.5,xanchor:'center',font:{size:10}},
+    dragmode:false
+  };
+
+  // ── Gráfico 4: Barras empilhadas — lojas por cluster e regional ───────────
+  const regionais=[...new Set(pontos.map(p=>p.regional))].sort();
+  const trBarReg=Array.from({length:kFinal},(_,k)=>{
+    const pts=pontos.filter(p=>p.cluster===k);
+    return {
+      type:'bar', name:`${ICONES[k]} ${LABELS_PADRAO[k]}`,
+      x:regionais, y:regionais.map(r=>pts.filter(p=>p.regional===r).length),
+      marker:{color:CORES[k],line:{color:'#1e293b',width:0.5}},
+      hovertemplate:`<b>${LABELS_PADRAO[k]}</b><br>%{x}: %{y} loja(s)<extra></extra>`
+    };
+  });
+  const layBarReg=baseLayout(`Distribuição por Regional e Cluster (${anoSel})`,'Nº de Lojas',400);
+  layBarReg.barmode='stack'; layBarReg.xaxis.tickangle=-30;
+
+  // ── Renderiza grid 2×2 ────────────────────────────────────────────────────
+  grid.innerHTML='';
+  const figs=[
+    {id:'cl-scatter',fig:{data:trScatter,layout:layScatter}},
+    {id:'cl-box',    fig:{data:trBox,    layout:layBox}},
+    {id:'cl-radar',  fig:{data:trRadar,  layout:layRadar}},
+    {id:'cl-barreg', fig:{data:trBarReg, layout:layBarReg}}
+  ];
+  figs.forEach(({id,fig})=>{
+    const card=document.createElement('div'); card.className='chart-card';
+    const inner=document.createElement('div'); inner.id=id; inner.style.minHeight='420px';
+    card.appendChild(inner); grid.appendChild(card);
+    if(id==='cl-radar') Plotly.newPlot(inner,fig.data,fig.layout,{...PLOTLY_CFG,responsive:true});
+    else renderPlotly(id,fig);
+  });
+
+  // ── Tabela de lojas por cluster ───────────────────────────────────────────
+  let html='<div class="section-title">📋 Lojas por Cluster</div><div class="tbl-wrap"><table><thead><tr>';
+  html+='<th>Cluster</th><th>Loja</th><th>Regional</th><th>Gasto/mês (R$)</th><th>Tarifa (R$/un)</th><th>CV (%)</th><th>Desvio vs Orc.</th><th>YoY</th></tr></thead><tbody>';
+  [...Array(kFinal).keys()].forEach(k=>{
+    pontos.filter(p=>p.cluster===k).sort((a,b)=>b.realMes-a.realMes).forEach(p=>{
+      const corYoY=p.yoy>0?'#dc2626':'#16a34a';
+      const corDev=p.desvPct>0?'#dc2626':'#16a34a';
+      html+=`<tr>
+        <td><span style="display:inline-flex;align-items:center;gap:5px;background:${CORES[k]}22;color:${CORES[k]};font-weight:700;padding:2px 8px;border-radius:12px;font-size:11px">${ICONES[k]} ${LABELS_PADRAO[k]}</span></td>
+        <td><strong>Loja ${p.loja}</strong></td>
+        <td>${p.regional}</td>
+        <td>R$ ${fmtAbrev(p.realMes)}</td>
+        <td>${p.tarifa?p.tarifa.toFixed(4):'—'}</td>
+        <td>${p.cv.toFixed(1)}%</td>
+        <td style="color:${corDev};font-weight:600">${p.desvPct>=0?'+':''}${p.desvPct.toFixed(1)}%</td>
+        <td style="color:${corYoY};font-weight:600">${p.yoy>=0?'+':''}${p.yoy.toFixed(1)}%</td>
+      </tr>`;
+    });
+  });
+  html+='</tbody></table></div>';
+  $('cl-table').innerHTML=html;
+
+  setStatus(`✅ Cluster concluído — ${kFinal} grupos | ${pontos.length} lojas analisadas`);
+}
+
 // Resize todos os gráficos ao redimensionar a janela
 window.addEventListener('resize', ()=>{
   document.querySelectorAll('.js-plotly-plot').forEach(p=>{ try{ Plotly.Plots.resize(p); }catch(e){} });
@@ -1809,7 +2144,7 @@ Object.assign(window,{
   importarPlanilha,gerarGraficos,calcularIndicadores,calcularDetalhamento,
   escalonarProposta2027,exportarExcel,exportarEscalonamento,
   gerarDispersao,gerarBenchmark,gerarTendencia,gerarYoY,
-  gerarPareto,gerarHeatmap,gerarAnomalias,gerarEficiencia,
+  gerarPareto,gerarHeatmap,gerarAnomalias,gerarEficiencia,gerarCluster,
   setModo,showTab,filtrarContasPorPacote,verificarSenha
 });
 
