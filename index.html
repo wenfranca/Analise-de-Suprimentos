@@ -306,22 +306,14 @@ tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px 
   <div id="panel-cluster" class="panel">
     <div class="adv-action">
       <div class="cg">
-        <label>Nº de grupos (K):</label>
-        <select id="cl-k">
-          <option value="auto" selected>Auto (Elbow)</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-          <option value="6">6</option>
-        </select>
-      </div>
-      <div class="cg">
         <label>Ano:</label>
         <select id="cl-ano"><option selected>2026</option><option>2025</option><option>2024</option></select>
       </div>
-      <button class="btn btn-success" onclick="gerarCluster()">🔵 Gerar Cluster</button>
-      <button class="btn btn-info" id="btn-cl-exp" disabled onclick="exportarCluster()">📥 Exportar Cluster Excel</button>
+      <div class="cg" style="background:#eff6ff;border-radius:8px;padding:6px 12px;font-size:11px;color:#3b82f6;border:1px solid #bfdbfe">
+        📊 <strong>Score = kWh/m² ÷ Fator Infraestrutura</strong> &nbsp;|&nbsp; 6 faixas por percentil
+      </div>
+      <button class="btn btn-success" onclick="gerarCluster()">🔵 Gerar Score & Faixas</button>
+      <button class="btn btn-info" id="btn-cl-exp" disabled onclick="exportarCluster()">📥 Exportar Excel</button>
     </div>
 
     <!-- KPIs do cluster -->
@@ -1927,7 +1919,6 @@ function gerarCluster(){
   const f=getFilters();
   const colReal='Realizado', colConsR='Consumo Realizado', colOrc='Orçado';
   const anoSel=parseInt($('cl-ano').value)||2026;
-  const kParam=$('cl-k').value;
 
   const COL_INFRA={
     clima:         ['Clima','CLIMA','clima','TIPO CLIMA'],
@@ -1942,7 +1933,8 @@ function gerarCluster(){
                    'vol. refrigerado m³','VOL REFRIGERADO','Volume Refrigerado','Vol Refrig'],
     ilhas:         ['Ilhas','ILHAS','ilhas','NUM ILHAS','QTD ILHAS'],
     noturna:       ['Operação Noturna','OPERAÇÃO NOTURNA','Operacao Noturna','OPERACAO NOTURNA',
-                   'Op Noturna','OP NOTURNA','Noturna','NOTURNA']
+                   'Op Noturna','OP NOTURNA','Noturna','NOTURNA'],
+    poco:          ['POÇO','Poço','POCO','Poco','poço','poco','POÇO ARTESIANO','Poço Artesiano']
   };
 
   // Detecção: primeiro tenta match exato, depois match sem acento e case-insensitive
@@ -2031,12 +2023,13 @@ function gerarCluster(){
       area:        infraCols.area         ? num(row[infraCols.area])         : 0,
       corredores:  infraCols.corredores   ? num(row[infraCols.corredores])   : 0,
       climatizadores: infraCols.climatizadores ? num(row[infraCols.climatizadores]) : 0,
-      // Açougue: se tem ano preenchido (ex: 2019) = tem açougue (1), vazio/zero = não tem (0)
-      acougue:     infraCols.acougue      ? (num(row[infraCols.acougue])>0?1:0) : 0,
+      // Açougue: Sim/Não/S/1/X = tem açougue (1), caso contrário = não tem (0)
+      acougue:     infraCols.acougue      ? bool(row[infraCols.acougue]) : 0,
       exaustores:  infraCols.exaustores   ? num(row[infraCols.exaustores])   : 0,
       volRefrig:   infraCols.volRefrig    ? num(row[infraCols.volRefrig])    : 0,
       ilhas:       infraCols.ilhas        ? num(row[infraCols.ilhas])        : 0,
       noturna:     infraCols.noturna      ? bool(row[infraCols.noturna])     : 0,
+      poco:        infraCols.poco         ? bool(row[infraCols.poco])        : 0,
     });
   });
 
@@ -2067,134 +2060,77 @@ function gerarCluster(){
   // kWh/m² e consumo absoluto têm peso 3x — são o foco principal
   // Infraestrutura tem peso 2x — explica o consumo estrutural
   // Financeiro tem peso 1x — contexto orçamentário
-  function getFeatures(p){
-    const kwh   = p.consumoMes;
-    const kwh_m2= p.kwh_m2;
-    const refrig= p.idx_refrig;
-    const clim  = p.carga_clim;
-    const tarifa= p.tarifa??0;
-    const area  = p.area;
-    const noturna=p.noturna;
-    const acougue=p.acougue;
-    const realMes=p.realMes;
-    const cv    = p.cv;
-    const corredores=p.corredores;
+  // ══════════════════════════════════════════════════════════════════════════
+  // SCORE COMPOSTO + FAIXAS
+  // Score = kWh/m² ÷ Fator_Infraestrutura
+  // Quanto MENOR o score, mais EFICIENTE a loja considerando sua infraestrutura
+  // ══════════════════════════════════════════════════════════════════════════
 
-    if(!temInfra){
-      return [kwh, kwh, kwh, realMes, tarifa, tarifa, cv];
-    }
-    // kWh/m² (peso 5) — métrica central de benchmark: eficiência normalizada pelo porte
-    // kWh/mês (peso 3) — consumo absoluto
-    // Infraestrutura explicativa (peso 2 cada)
-    // Financeiro/operacional (peso 1 cada)
-    return [
-      kwh_m2, kwh_m2, kwh_m2, kwh_m2, kwh_m2, // peso 5 — kWh/m² é o KPI de benchmark
-      kwh, kwh, kwh,                             // peso 3 — consumo absoluto
-      refrig, refrig,                            // peso 2 — refrigeração (vol+ilhas)
-      clim, clim,                                // peso 2 — climatização (climatiz×clima+exaust)
-      area, area,                                // peso 2 — porte
-      corredores, corredores,                    // peso 2 — corredores
-      acougue, acougue,                          // peso 2 — açougue
-      noturna,                                   // peso 1 — operacional
-      tarifa,                                    // peso 1 — contrato
-      realMes,                                   // peso 1 — financeiro
-      cv                                         // peso 1 — volatilidade
-    ];
+  // Fator de ajuste: penaliza menos lojas com infraestrutura de alto consumo inevitável
+  function calcFatorInfra(p){
+    // Clima ordinal: Não detectado=0, Frio=1, Ameno=2, Moderado=3, Quente=4, Muito Quente=5
+    const fClima  = [0, 0, 0.05, 0.10, 0.18, 0.25][Math.min(p.clima||0, 5)];
+    const fRefrig = (p.volRefrig||0) / 1000 * 0.08;   // +0.08 por 1000m³
+    const fIlhas  = (p.ilhas||0) * 0.015;              // +0.015 por ilha
+    const fAcougue= (p.acougue||0) * 0.12;             // +0.12 se tem açougue
+    const fNoturna= (p.noturna||0) * 0.10;             // +0.10 se opera à noite
+    const fPoco   = (p.poco||0) * 0.03;                // +0.03 se tem poço
+    const fCor    = (p.corredores||0) / 10 * 0.01;     // +0.01 por corredor
+    return 1 + fClima + fRefrig + fIlhas + fAcougue + fNoturna + fPoco + fCor;
   }
 
-  const FEAT_LABELS_RADAR=[
-    'kWh/m²','kWh/m²','kWh/m²','kWh/m²','kWh/m²',  // peso 5
-    'kWh/mês','kWh/mês','kWh/mês',                    // peso 3
-    'Refrigeração','Refrigeração',                     // peso 2
-    'Climatização','Climatização',                     // peso 2
-    'Área','Área',                                     // peso 2
-    'Corredores','Corredores',                         // peso 2
-    'Açougue','Açougue',                               // peso 2
-    'Noturna','Tarifa','Gasto R$','Volatilidade'       // peso 1
-  ];
+  // Calcula score para cada loja
+  pontos.forEach(p=>{
+    p.fatorInfra = calcFatorInfra(p);
+    p.score      = p.kwh_m2 > 0 ? p.kwh_m2 / p.fatorInfra : p.kwh_m2;
+  });
 
-  // Z-score
-  const features=pontos.map(p=>getFeatures(p));
-  const nFeat=features[0].length;
-  const means=Array.from({length:nFeat},(_,j)=>features.reduce((a,f)=>a+f[j],0)/features.length);
-  const stds=Array.from({length:nFeat},(_,j)=>{ const m=means[j]; const s=Math.sqrt(features.reduce((a,f)=>a+(f[j]-m)**2,0)/features.length); return s||1; });
-  const norm=features.map(f=>f.map((v,j)=>(v-means[j])/stds[j]));
+  // Define faixas por percentis da distribuição real dos scores
+  const scores=[...pontos.map(pt=>pt.score)].sort((a,b)=>a-b);
+  const nS=scores.length;
+  const perc=(pct)=>scores[Math.min(Math.floor(nS*pct),nS-1)];
 
-  // K-Means++
-  function dist2(a,b){ return a.reduce((s,v,i)=>s+(v-b[i])**2,0); }
-  function kmeans(data,k,maxIter=150){
-    const cents=[data[Math.floor(Math.random()*data.length)]];
-    while(cents.length<k){
-      const dists=data.map(p=>Math.min(...cents.map(c=>dist2(p,c))));
-      const total=dists.reduce((a,b)=>a+b,0)||1;
-      let r=Math.random()*total, i=0;
-      while(r>0&&i<dists.length){ r-=dists[i++]; }
-      cents.push(data[Math.max(0,i-1)]);
-    }
-    let labels=new Array(data.length).fill(0);
-    for(let iter=0;iter<maxIter;iter++){
-      const nL=data.map(p=>cents.reduce((bk,c,ki)=>dist2(p,c)<dist2(p,cents[bk])?ki:bk,0));
-      const nC=Array.from({length:k},(_,ki)=>{ const pts=data.filter((_,i)=>nL[i]===ki); if(!pts.length) return cents[ki]; return Array.from({length:data[0].length},(_,j)=>pts.reduce((a,p)=>a+p[j],0)/pts.length); });
-      const changed=nL.some((l,i)=>l!==labels[i]);
-      labels=nL; cents.splice(0,k,...nC);
-      if(!changed) break;
-    }
-    return {labels,cents,inertia:data.reduce((s,p,i)=>s+dist2(p,cents[labels[i]]),0)};
-  }
+  const L83=perc(0.83), L67=perc(0.67), L50=perc(0.50), L33=perc(0.33), L17=perc(0.17);
 
-  // Elbow
-  let kFinal;
-  if(kParam==='auto'){
-    const inercias=[];
-    for(let k=2;k<=6;k++){
-      let best=null;
-      for(let r=0;r<5;r++){ const res=kmeans(norm,k); if(!best||res.inertia<best.inertia) best=res; }
-      inercias.push({k,inertia:best.inertia});
-    }
-    let maxDrop=0; kFinal=3;
-    for(let i=1;i<inercias.length;i++){
-      const drop=inercias[i-1].inertia-inercias[i].inertia;
-      const dropRel=drop/inercias[0].inertia;
-      if(dropRel>maxDrop){ maxDrop=dropRel; kFinal=inercias[i-1].k; }
-    }
-  } else {
-    kFinal=Math.min(parseInt(kParam),Math.floor(norm.length/3)||2);
-  }
+  // Atribui faixa a cada loja — maior score = pior eficiência = faixa 0 (Crítico)
+  pontos.forEach(pt=>{
+    if(pt.score > L83)      pt.cluster=0; // top 17% piores
+    else if(pt.score > L67) pt.cluster=1;
+    else if(pt.score > L50) pt.cluster=2;
+    else if(pt.score > L33) pt.cluster=3;
+    else if(pt.score > L17) pt.cluster=4;
+    else                    pt.cluster=5; // bottom 17% melhores = Referência
+  });
 
-  let resultado=null;
-  for(let r=0;r<10;r++){ const res=kmeans(norm,kFinal); if(!resultado||res.inertia<resultado.inertia) resultado=res; }
-  const {labels}=resultado;
+  kFinal=6;
 
-  // Ordena por gasto médio decrescente
-  const mPC=Array.from({length:kFinal},(_,k)=>{ const pts=pontos.filter((_,i)=>labels[i]===k); return pts.reduce((a,p)=>a+p.realMes,0)/(pts.length||1); });
-  const ordem=[...Array(kFinal).keys()].sort((a,b)=>mPC[b]-mPC[a]);
-  const cFinal=labels.map(l=>ordem.indexOf(l));
-  pontos.forEach((p,i)=>{ p.cluster=cFinal[i]; });
-
-  const CORES=['#ef4444','#f59e0b','#3b82f6','#10b981','#8b5cf6','#06b6d4'];
-  const ICONES=['🔴','🟠','🔵','🟢','🟣','🩵'];
-  const LBLS_BASE=['Alto Consumo','Consumo Elevado','Consumo Médio+','Consumo Médio','Consumo Baixo','Consumo Mínimo'];
-  const LBLS=Array.from({length:kFinal},(_,k)=>LBLS_BASE[k]||`Grupo ${k+1}`);
+  const CORES  =['#dc2626','#f59e0b','#3b82f6','#eab308','#10b981','#8b5cf6'];
+  const ICONES =['🔴','🟠','🔵','🟡','🟢','🟣'];
+  const LBLS   =['Crítico','Alto','Moderado','Regular','Eficiente','Referência'];
+  const limScores=[L83,L67,L50,L33,L17,0];
 
   // KPIs com foco em kWh e kWh/m²
   const kpiCards=Array.from({length:kFinal},(_,k)=>{
     const pts=pontos.filter(p=>p.cluster===k);
-    const mKwh  =pts.reduce((a,p)=>a+p.consumoMes,0)/pts.length;
-    const mKwhM2=pts.reduce((a,p)=>a+p.kwh_m2,0)/pts.length;
-    const mTar  =pts.filter(p=>p.tarifa).reduce((a,p)=>a+(p.tarifa||0),0)/(pts.filter(p=>p.tarifa).length||1);
-    const mReal =pts.reduce((a,p)=>a+p.realMes,0)/pts.length;
-    const mArea =temInfra&&infraCols.area?pts.reduce((a,p)=>a+p.area,0)/pts.length:null;
-    const comAc =pts.filter(p=>p.acougue>0).length;
-    const comNot=pts.filter(p=>p.noturna>0).length;
+    if(!pts.length) return '';
+    const mKwh   =pts.reduce((a,p)=>a+p.consumoMes,0)/pts.length;
+    const mKwhM2 =pts.reduce((a,p)=>a+p.kwh_m2,0)/pts.length;
+    const mScore =pts.reduce((a,p)=>a+p.score,0)/pts.length;
+    const mFator =pts.reduce((a,p)=>a+p.fatorInfra,0)/pts.length;
+    const mTar   =pts.filter(p=>p.tarifa).reduce((a,p)=>a+(p.tarifa||0),0)/(pts.filter(p=>p.tarifa).length||1);
+    const comAc  =pts.filter(p=>p.acougue>0).length;
+    const comNot =pts.filter(p=>p.noturna>0).length;
+    const comPoco=pts.filter(p=>p.poco>0).length;
+    const scoreLim=k<5?`Score ≤ ${limScores[k].toFixed(1)}`:`Score ≤ ${limScores[4].toFixed(1)}`;
+    const descFaixa=['Consumo muito acima do esperado para a infraestrutura','Consumo acima do esperado — atenção','Consumo moderadamente acima da mediana','Consumo próximo da mediana do grupo','Consumo abaixo da média — bom desempenho','Melhor eficiência — benchmark para as demais'][k];
     return `<div class="kpi-card" style="border-left-color:${CORES[k]}">
       <div class="kpi-title">${ICONES[k]} ${LBLS[k]} — ${pts.length} loja(s)</div>
-      <div class="kpi-value" style="font-size:15px">${fmtAbrev(mKwh)} kWh/mês</div>
+      <div class="kpi-value" style="font-size:15px">Score médio: <strong>${mScore.toFixed(1)}</strong></div>
       <div class="kpi-sub">
-        ${mArea!==null?`kWh/m²: <strong>${mKwhM2.toFixed(1)}</strong> &nbsp;|&nbsp; `:''}
-        Tarifa: ${mTar>0?mTar.toFixed(4)+' R$/kWh':'—'} &nbsp;|&nbsp;
-        R$/mês: R$ ${fmtAbrev(mReal)}
-        ${comAc>0?` &nbsp;|&nbsp; 🥩 ${comAc} c/ açougue`:''}
-        ${comNot>0?` &nbsp;|&nbsp; 🌙 ${comNot} noturnas`:''}
+        kWh/m²: ${mKwhM2.toFixed(1)} &nbsp;|&nbsp; Fator Infra: ${mFator.toFixed(2)} &nbsp;|&nbsp; kWh/mês: ${fmtAbrev(mKwh)}<br>
+        Tarifa: ${mTar>0?mTar.toFixed(4)+' R$/kWh':'—'}
+        ${comAc>0?` &nbsp;|&nbsp; 🥩 ${comAc}`:''}${comNot>0?` 🌙 ${comNot}`:''}${comPoco>0?` 💧 ${comPoco}`:''}
+        <br><span style="color:#64748b;font-size:10px;font-style:italic">${descFaixa}</span>
       </div>
     </div>`;
   }).join('');
@@ -2202,32 +2138,32 @@ function gerarCluster(){
   $('cl-kpi').style.display='block';
 
 
-  // Gráfico 1: Área × kWh/mês — tamanho do ponto = índice de refrigeração
-  // Principal gráfico de benchmark: lojas similares em área devem ter consumo similar
+  const nTotalPontos=pontos.length;
+  // Com muitas lojas, remove rótulos do gráfico — ficam só no hover
+  const modoScatter=nTotalPontos>40?'markers':'markers+text';
+
   const trSc1=Array.from({length:kFinal},(_,k)=>{
     const pts=pontos.filter(p=>p.cluster===k);
-    return { type:'scatter',mode:'markers+text',name:`${ICONES[k]} ${LBLS[k]}`,
-      x:pts.map(p=>p.area||p.realMes),  // fallback para gasto se não tiver área
+    return { type:'scatter',mode:modoScatter,name:`${ICONES[k]} ${LBLS[k]}`,
+      x:pts.map(p=>p.area||p.realMes),
       y:pts.map(p=>p.consumoMes),
-      text:pts.map(p=>p.loja),textposition:'top center',textfont:{size:9},
+      text:pts.map(p=>p.loja),textposition:'top center',textfont:{size:8},
       marker:{
         color:CORES[k],
-        size:pts.map(p=>Math.max(10,Math.min(30,8+(p.volRefrig||0)/50+(p.ilhas||0)*2))),
-        symbol:'circle',line:{color:'#1e293b',width:1},opacity:0.85
+        size:pts.map(p=>Math.max(6,Math.min(18,4+(p.volRefrig||0)/120+(p.ilhas||0)*0.8))),
+        symbol:'circle',line:{color:'#1e293b',width:0.5},opacity:0.8
       },
       customdata:pts.map(p=>`<b>Loja ${p.loja}</b><br>` +
-        `kWh/mês: <b>${fmtAbrev(p.consumoMes)}</b><br>` +
-        `kWh/m²: <b>${p.area>0?p.kwh_m2.toFixed(1):'—'}</b><br>` +
+        `Score: <b>${p.score.toFixed(1)}</b> (kWh/m² ${p.kwh_m2.toFixed(1)} ÷ Fator ${p.fatorInfra.toFixed(2)})<br>` +
+        `kWh/mês: ${fmtAbrev(p.consumoMes)} | kWh/m²: ${p.kwh_m2.toFixed(1)}<br>` +
         `─────────────────────<br>` +
         `Área: ${p.area>0?fmtAbrev(p.area)+'m²':'—'}<br>` +
-        `Corredores: ${p.corredores||'—'}<br>` +
-        `Climatizadores: ${p.climatizadores||'—'}<br>` +
-        `Vol.Refrig: ${p.volRefrig>0?fmtAbrev(p.volRefrig)+'m³':'—'} | Ilhas: ${p.ilhas||'—'}<br>` +
-        `Açougue: ${p.acougue?'🥩 Sim':'Não'} | Noturna: ${p.noturna?'🌙 Sim':'Não'}<br>` +
+        `Corredores: ${p.corredores||'—'} | Climatiz.: ${p.climatizadores||'—'}<br>` +
+        `Vol.Refrig: ${p.volRefrig>0?Math.round(p.volRefrig)+'m³':'—'} | Ilhas: ${p.ilhas||'—'}<br>` +
+        `Açougue: ${p.acougue?'🥩 Sim':'Não'} | Noturna: ${p.noturna?'🌙 Sim':'Não'} | Poço: ${p.poco?'💧 Sim':'Não'}<br>` +
         `Clima: ${['—','Frio','Ameno','Moderado','Quente','Muito Quente'][p.clima]||'—'}<br>` +
         `─────────────────────<br>` +
-        `Tarifa: ${p.tarifa?p.tarifa.toFixed(4)+' R$/kWh':'—'}<br>` +
-        `Cluster: ${LBLS[k]}`),
+        `Tarifa: ${p.tarifa?p.tarifa.toFixed(4)+' R$/kWh':'—'} | Faixa: ${ICONES[k]} ${LBLS[k]}`),
       hovertemplate:'%{customdata}<extra></extra>'};
   });
   const laySc1=baseLayout(
@@ -2235,8 +2171,7 @@ function gerarCluster(){
     'Consumo kWh/mês',460
   );
   laySc1.xaxis={title:temInfra&&infraCols.area?'Área de Vendas (m²)':'Gasto Mensal (R$)',showgrid:true,gridcolor:'#f1f5f9',tickfont:{size:10}};
-  laySc1.hovermode='closest';
-  if(temInfra&&infraCols.area){
+  laySc1.hovermode='closest';  if(temInfra&&infraCols.area){
     laySc1.annotations=[{
       text:'⊙ Tamanho do ponto = Vol.Refrigerado + Ilhas',
       xref:'paper',yref:'paper',x:0.99,y:0.01,xanchor:'right',yanchor:'bottom',
@@ -2244,32 +2179,65 @@ function gerarCluster(){
       bgcolor:'rgba(248,250,252,0.8)',bordercolor:'#e2e8f0',borderwidth:1,borderpad:4
     }];
   }
+  laySc1.margin={l:65,r:30,t:60,b:60};
+  laySc1.legend={orientation:'h',y:-0.18,x:0.5,xanchor:'center',font:{size:10},
+                 bgcolor:'rgba(255,255,255,0.9)',bordercolor:'#e2e8f0',borderwidth:1};
 
   // Gráfico 2: kWh/m² por cluster — boxplot (principal KPI de eficiência normalizada)
   const trSc2=Array.from({length:kFinal},(_,k)=>{
     const pts=pontos.filter(p=>p.cluster===k);
     return { type:'box',name:`${ICONES[k]} ${LBLS[k]}`,
-      y:pts.map(p=>p.kwh_m2),
+      y:pts.map(p=>p.score),
       marker:{color:CORES[k]}, boxmean:true,
-      hovertemplate:`<b>${LBLS[k]}</b><br>kWh/m²: %{y:.1f}<extra></extra>` };
+      hovertemplate:`<b>${LBLS[k]}</b><br>Score: %{y:.1f}<extra></extra>` };
   });
-  const laySc2=baseLayout(`kWh/m² por Cluster — Eficiência Normalizada pelo Porte (${anoSel})`,'kWh / m²',460);
+  const laySc2=baseLayout(`Score por Faixa — Eficiência Ajustada pela Infraestrutura (${anoSel})`,'Score (menor = mais eficiente)',460);
   laySc2.boxmode='group';
-  laySc2.yaxis.title='kWh/m² (menor = mais eficiente)';
+  laySc2.yaxis.title='Score = kWh/m² ÷ Fator Infra (menor = mais eficiente)';
+  laySc2.margin={l:65,r:30,t:60,b:100};
+  laySc2.legend={orientation:'h',y:-0.22,x:0.5,xanchor:'center',font:{size:10},
+                 bgcolor:'rgba(255,255,255,0.9)',bordercolor:'#e2e8f0',borderwidth:1};
 
-  // Gráfico 3: Radar — usa labels únicos e legíveis
-  const RADAR_UNIQUE=['kWh/mês','kWh/m²','Refrigeração','Climatização','Área','Açougue','Noturna','Tarifa','Gasto R$','Volatilidade'];
-  const radarLabs=RADAR_UNIQUE.slice(0,Math.min(10,nFeat));
+  // Gráfico 3: Radar — calcula média direta de cada variável por cluster (sem repetição do vetor de features)
+  // Inclui todas as variáveis que impactam o consumo
+  const radarDefs=[
+    {label:'kWh/m²',      fn:p=>p.kwh_m2,            ativo:true},
+    {label:'kWh/mês',     fn:p=>p.consumoMes,         ativo:true},
+    {label:'Área m²',     fn:p=>p.area,               ativo:temInfra&&infraCols.area},
+    {label:'Vol.Refrig',  fn:p=>p.volRefrig,           ativo:temInfra&&infraCols.volRefrig},
+    {label:'Ilhas',       fn:p=>p.ilhas,               ativo:temInfra&&infraCols.ilhas},
+    {label:'Corredores',  fn:p=>p.corredores,          ativo:temInfra&&infraCols.corredores},
+    {label:'Climatiz.',   fn:p=>p.climatizadores,      ativo:temInfra&&infraCols.climatizadores},
+    {label:'Exaustores',  fn:p=>p.exaustores,          ativo:temInfra&&infraCols.exaustores},
+    {label:'Açougue',     fn:p=>p.acougue,             ativo:temInfra&&infraCols.acougue},
+    {label:'Poço',        fn:p=>p.poco,                ativo:temInfra&&infraCols.poco},
+    {label:'Noturna',     fn:p=>p.noturna,             ativo:temInfra&&infraCols.noturna},
+    {label:'Clima',       fn:p=>p.clima,               ativo:temInfra&&infraCols.clima},
+    {label:'Tarifa',      fn:p=>p.tarifa??0,           ativo:true},
+    {label:'Gasto R$/mês',fn:p=>p.realMes,             ativo:true},
+  ].filter(d=>d.ativo);
+
+  // Calcula média global de cada variável para normalizar 0-100
+  const radarMedGlobal=radarDefs.map(d=>{
+    const vals=pontos.map(p=>d.fn(p)).filter(v=>v!==null&&!isNaN(v)&&v>0);
+    return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:1;
+  });
+  const radarMaxGlobal=radarDefs.map(d=>{
+    const vals=pontos.map(p=>d.fn(p)).filter(v=>v!==null&&!isNaN(v));
+    return Math.max(...vals,0.001);
+  });
+
+  const radarLabs=radarDefs.map(d=>d.label);
   const trRadar=Array.from({length:kFinal},(_,k)=>{
     const pts=pontos.filter(p=>p.cluster===k);
-    const rawVals=Array.from({length:nFeat},(_,j)=>pts.reduce((a,p)=>a+(getFeatures(p)[j]||0),0)/pts.length);
-    const pct=rawVals.map((v,j)=>Math.min(100,Math.max(0,(v-means[j]+stds[j]*2)/(stds[j]*4)*100)));
-    const labs=radarLabs.slice(0,Math.min(nFeat,12)); // max 12 eixos no radar
-    const r=pct.slice(0,labs.length);
+    const r=radarDefs.map((d,i)=>{
+      const med=pts.reduce((a,p)=>a+(d.fn(p)||0),0)/pts.length;
+      return Math.min(100,Math.round(med/radarMaxGlobal[i]*100));
+    });
     return { type:'scatterpolar',name:`${ICONES[k]} ${LBLS[k]}`,
-      r:[...r,...[r[0]]],theta:[...labs,...[labs[0]]],
+      r:[...r,r[0]],theta:[...radarLabs,radarLabs[0]],
       fill:'toself',fillcolor:CORES[k]+'33',line:{color:CORES[k],width:2},
-      hovertemplate:`<b>${LBLS[k]}</b><br>%{theta}: %{r:.1f}<extra></extra>` };
+      hovertemplate:`<b>${LBLS[k]}</b><br>%{theta}: %{r:.0f}%<extra></extra>` };
   });
   const layRadar={
     title:{text:`Perfil Médio por Cluster (${anoSel})`,font:{size:14,color:'#2c3e50'},x:0.5,xanchor:'center'},
@@ -2289,8 +2257,12 @@ function gerarCluster(){
       marker:{color:CORES[k],line:{color:'#1e293b',width:0.5}},
       hovertemplate:`<b>${LBLS[k]}</b><br>%{x}: %{y} loja(s)<extra></extra>` };
   });
-  const layBarReg=baseLayout(`Distribuição por Regional e Cluster (${anoSel})`,'Nº de Lojas',400);
-  layBarReg.barmode='stack'; layBarReg.xaxis.tickangle=-30;
+  const layBarReg=baseLayout(`Distribuição por Regional e Cluster (${anoSel})`,'Nº de Lojas',420);
+  layBarReg.barmode='stack';
+  layBarReg.xaxis.tickangle=-30;
+  layBarReg.margin={l:60,r:30,t:60,b:100};
+  layBarReg.legend={orientation:'h',y:-0.28,x:0.5,xanchor:'center',font:{size:10},
+                    bgcolor:'rgba(255,255,255,0.9)',bordercolor:'#e2e8f0',borderwidth:1};
 
   // Renderiza
   grid.innerHTML='';
@@ -2309,11 +2281,11 @@ function gerarCluster(){
   const temI=temInfra&&infraCols.ilhas, temC=temInfra&&infraCols.climatizadores;
   const temCor=temInfra&&infraCols.corredores;
   const temN=temInfra&&infraCols.noturna, temAc=temInfra&&infraCols.acougue;
-  let html='<div class="section-title">📋 Lojas por Cluster — ordenadas por consumo kWh/mês (maior → menor)</div><div class="tbl-wrap" style="overflow-x:auto"><table><thead><tr>';
-  html+='<th>Cluster</th><th>Loja</th><th>Regional</th>';
-  html+='<th>kWh/mês ▼</th>';
-  if(temA) html+='<th>kWh/m²</th>';
-  html+='<th>Tarifa R$/kWh</th><th>Gasto R$/mês</th><th>Desvio Orc.</th><th>YoY</th>';
+  const temPoco=temInfra&&infraCols.poco;
+  let html='<div class="section-title">📋 Lojas por Faixa de Score — ordenadas por Score (maior → menor)</div><div class="tbl-wrap" style="overflow-x:auto"><table><thead><tr>';
+  html+='<th>Faixa</th><th>Loja</th><th>Regional</th>';
+  html+='<th>Score ▼</th><th>kWh/m²</th><th>Fator Infra</th>';
+  html+='<th>kWh/mês</th><th>Tarifa R$/kWh</th><th>Gasto R$/mês</th><th>Desvio Orc.</th><th>YoY</th>';
   if(temA)   html+='<th>Área m²</th>';
   if(temR)   html+='<th>Vol.Refrig m³</th>';
   if(temCor) html+='<th>Corredores</th>';
@@ -2321,18 +2293,19 @@ function gerarCluster(){
   if(temC)   html+='<th>Climatiz.</th>';
   if(temAc) html+='<th>Açougue</th>';
   if(temN)  html+='<th>Noturna</th>';
+  if(temPoco) html+='<th>Poço</th>';
   html+='</tr></thead><tbody>';
   [...Array(kFinal).keys()].forEach(k=>{
-    // Ordena por kWh decrescente dentro do cluster
-    pontos.filter(p=>p.cluster===k).sort((a,b)=>b.consumoMes-a.consumoMes).forEach(p=>{
+    pontos.filter(p=>p.cluster===k).sort((a,b)=>b.score-a.score).forEach(p=>{
       const cY=p.yoy>0?'#dc2626':'#16a34a', cD=p.desvPct>0?'#dc2626':'#16a34a';
-      const climaNome=['','Frio','Ameno','Moderado','Quente','Muito Quente'][p.clima]||'—';
       html+=`<tr>
         <td><span style="display:inline-flex;align-items:center;gap:5px;background:${CORES[k]}22;color:${CORES[k]};font-weight:700;padding:2px 8px;border-radius:12px;font-size:11px">${ICONES[k]} ${LBLS[k]}</span></td>
         <td><strong>Loja ${p.loja}</strong></td>
         <td>${p.regional}</td>
-        <td><strong>${fmtAbrev(p.consumoMes)} kWh</strong></td>
-        ${temA?`<td><strong>${p.kwh_m2.toFixed(1)}</strong></td>`:''}
+        <td><strong style="color:${CORES[k]}">${p.score.toFixed(1)}</strong></td>
+        <td>${p.kwh_m2.toFixed(1)}</td>
+        <td title="Fator = ${p.fatorInfra.toFixed(3)}">${p.fatorInfra.toFixed(2)}</td>
+        <td>${fmtAbrev(p.consumoMes)} kWh</td>
         <td>${p.tarifa?p.tarifa.toFixed(4):'—'}</td>
         <td>R$ ${fmtAbrev(p.realMes)}</td>
         <td style="color:${cD};font-weight:600">${p.desvPct>=0?'+':''}${p.desvPct.toFixed(1)}%</td>
@@ -2344,6 +2317,7 @@ function gerarCluster(){
         ${temC  ?`<td>${p.climatizadores}</td>`:''}
         ${temAc?`<td>${p.acougue?'🥩 Sim':'—'}</td>`:''}
         ${temN ?`<td>${p.noturna?'🌙 Sim':'—'}</td>`:''}
+        ${temPoco?`<td>${p.poco?'💧 Sim':'—'}</td>`:''}
       </tr>`;
     });
   });
@@ -2351,8 +2325,8 @@ function gerarCluster(){
   $('cl-table').innerHTML=html;
 
   const inf=temInfra
-    ? `✅ Cluster — ${kFinal} grupos | ${pontos.length} lojas | Infra detectada: ${Object.entries(infraCols).filter(([,v])=>v).map(([k,v])=>`${k}="${v}"`).join(', ')}`
-    : `⚠️ Cluster — ${kFinal} grupos | nenhuma coluna de infraestrutura detectada. Colunas disponíveis: ${Object.keys(DADOS[0]||{}).join(', ')}`;
+    ? `✅ Score gerado — 6 faixas | ${pontos.length} lojas | Score = kWh/m² ÷ Fator Infra | ${Object.entries(infraCols).filter(([,v])=>v).map(([k])=>k).join(', ')}`
+    : `⚠️ Score gerado — 6 faixas | ${pontos.length} lojas | infraestrutura não detectada — score = kWh/m² sem ajuste`;
   setStatus(inf);
 
   // Salva para exportação
@@ -2379,10 +2353,11 @@ function exportarCluster(){
   const temC=tabelaCluster.some(p=>p.climatizadores>0);
   const temAc=tabelaCluster.some(p=>p.acougue>0);
   const temN=tabelaCluster.some(p=>p.noturna>0);
+  const temPoco=tabelaCluster.some(p=>p.poco>0);
   const temClima=tabelaCluster.some(p=>p.clima>0);
 
   // Monta cabeçalho
-  const headers=['Cluster','Grupo','Loja','Regional','kWh/mês','kWh/m²','Tarifa (R$/kWh)','Gasto R$/mês','Desvio Orc. (%)','YoY (%)'];
+  const headers=['Faixa','Loja','Regional','Score','kWh/m²','Fator Infra','kWh/mês','Tarifa (R$/kWh)','Gasto R$/mês','Desvio Orc. (%)','YoY (%)'];
   if(temA)     headers.push('Área m²');
   if(temR)     headers.push('Vol. Refrig. m³');
   if(temCor)   headers.push('Corredores');
@@ -2390,19 +2365,21 @@ function exportarCluster(){
   if(temC)     headers.push('Climatizadores');
   if(temAc)    headers.push('Açougue');
   if(temN)     headers.push('Op. Noturna');
+  if(temPoco)  headers.push('Poço Artesiano');
   if(temClima) headers.push('Clima');
 
   // Monta linhas ordenadas por cluster e kWh desc
   const rows=[];
   [...Array(kFinalExp).keys()].forEach(k=>{
-    tabelaCluster.filter(p=>p.cluster===k).sort((a,b)=>b.consumoMes-a.consumoMes).forEach(p=>{
+    tabelaCluster.filter(p=>p.cluster===k).sort((a,b)=>b.score-a.score).forEach(p=>{
       const row=[
-        `${ICONES[k]} ${LBLS[k]}`,   // Cluster (texto)
-        k+1,                           // Grupo (número)
+        `${ICONES[k]} ${LBLS[k]}`,   // Faixa
         p.loja,
         p.regional,
-        p.consumoMes,                  // kWh/mês — número
+        p.score,                       // Score
         p.kwh_m2,                      // kWh/m²
+        p.fatorInfra,                  // Fator Infra
+        p.consumoMes,                  // kWh/mês
         p.tarifa??'',                  // Tarifa
         p.realMes,                     // Gasto R$
         p.desvPct,                     // Desvio %
@@ -2415,6 +2392,7 @@ function exportarCluster(){
       if(temC)     row.push(p.climatizadores);
       if(temAc)    row.push(p.acougue?'Sim':'Não');
       if(temN)     row.push(p.noturna?'Sim':'Não');
+      if(temPoco)  row.push(p.poco?'Sim':'Não');
       if(temClima) row.push(climaNomes[p.clima]||p.clima);
       rows.push(row);
     });
@@ -2424,7 +2402,7 @@ function exportarCluster(){
   const ws=XLSX.utils.aoa_to_sheet(aoa);
 
   // Larguras de coluna
-  const colWidths=[22,8,8,14,14,10,16,14,14,10];
+  const colWidths=[22,8,14,10,10,12,14,16,14,14,10];
   if(temA)     colWidths.push(10);
   if(temR)     colWidths.push(14);
   if(temCor)   colWidths.push(12);
@@ -2432,12 +2410,15 @@ function exportarCluster(){
   if(temC)     colWidths.push(12);
   if(temAc)    colWidths.push(10);
   if(temN)     colWidths.push(12);
+  if(temPoco)  colWidths.push(14);
+
+  // Score=col3, kWh/m²=col4, FatorInfra=col5, kWh/mês=col6, Tarifa=col7, Gasto=col8
+  const fmtMap={3:'0.0',4:'0.0',5:'0.00',6:'#,##0',7:'0.0000',8:'#,##0.00',9:'0.0%',10:'0.0%'};
   if(temClima) colWidths.push(14);
   ws['!cols']=colWidths.map(w=>({wch:w}));
 
   // Formatos numéricos
   const nRows=rows.length;
-  const fmtMap={4:'#,##0',5:'#,##0.0',6:'0.0000',7:'#,##0.00',8:'0.0%',9:'0.0%'};
   for(let r=1;r<=nRows;r++){
     Object.entries(fmtMap).forEach(([col,fmt])=>{
       const ref=XLSX.utils.encode_cell({r,c:parseInt(col)});
@@ -2521,6 +2502,7 @@ function gerarComparacao(){
     const cVol    =fc2(['Vol. Refrigerado M³','VOL. REFRIGERADO M³','VOL REFRIGERADO M3']);
     const cIlhas  =fc2(['Ilhas','ILHAS']);
     const cNot    =fc2(['Operação Noturna','OPERAÇÃO NOTURNA','OPERACAO NOTURNA']);
+    const cPoco   =fc2(['POÇO','Poço','POCO','Poco','POÇO ARTESIANO','Poço Artesiano']);
     const cClima  =fc2(['Clima','CLIMA']);
 
     return {
@@ -2532,11 +2514,12 @@ function gerarComparacao(){
       area:    cArea  ?num(row[cArea])    :null,
       corredores: cCor?num(row[cCor])    :null,
       climatizadores: cClim?num(row[cClim]):null,
-      acougue: cAc    ?num(row[cAc])>0   :null,
+      acougue: cAc    ?bool(row[cAc])==='Sim':null,
       exaustores: cEx ?num(row[cEx])     :null,
       volRefrig: cVol ?num(row[cVol])    :null,
       ilhas:   cIlhas ?num(row[cIlhas])  :null,
       noturna: cNot   ?bool(row[cNot])   :null,
+      poco:    cPoco  ?bool(row[cPoco])==='Sim':null,
       climaNum: cClima?climaVal(row[cClima]):null,
       climaNome: cClima?row[cClima]       :null,
       regional: row['Regional']||'—',
@@ -2647,6 +2630,7 @@ function gerarComparacao(){
         ${linhaComp('Exaustores',A.exaustores,B.exaustores,'',true)}
         ${linhaComp('Açougue',A.acougue===null?null:A.acougue?'🥩 Sim':'Não',B.acougue===null?null:B.acougue?'🥩 Sim':'Não')}
         ${linhaComp('Operação Noturna',A.noturna===null?null:A.noturna,B.noturna===null?null:B.noturna)}
+        ${linhaComp('Poço Artesiano',A.poco===null?null:A.poco?'💧 Sim':'Não',B.poco===null?null:B.poco?'💧 Sim':'Não')}
         ${linhaComp('Clima',A.climaNome||null,B.climaNome||null)}
       </tbody>
     </table>
@@ -2687,6 +2671,8 @@ function gerarComparacao(){
     {label:'Exaustores',  vA:A.exaustores, vB:B.exaustores},
     {label:'Clima',       vA:A.climaNum,   vB:B.climaNum},
     {label:'kWh/m²',      vA:kwh_m2_A,     vB:kwh_m2_B},
+    {label:'Açougue',     vA:A.acougue?1:0,vB:B.acougue?1:0},
+    {label:'Poço',        vA:A.poco?1:0,   vB:B.poco?1:0},
   ].filter(v=>v.vA!==null||v.vB!==null);
 
   const radarLabels=infraVars.map(v=>v.label);
