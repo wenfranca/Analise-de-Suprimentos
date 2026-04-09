@@ -611,7 +611,7 @@ function importarPlanilha(input){
       const contas=[...new Set(semAdm.map(x=>x['Descrição Conta']).filter(Boolean))].sort();
       const lojas=[...new Set(semAdm.map(x=>String(x['Nº Loja'])).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
       const pacotes='Pacote' in DADOS[0]?[...new Set(semAdm.map(x=>x['Pacote']).filter(Boolean))].sort():[];
-      const regionais='Regional' in DADOS[0]?[...new Set(semAdm.map(x=>x['Regional']).filter(Boolean))].filter(r=>r.toLowerCase()!=='adm').sort():[];
+      const regionais='Regional' in DADOS[0]?[...new Set(semAdm.map(x=>x['Regional']).filter(Boolean))].filter(r=>String(r).toLowerCase()!=='adm').sort():[];
       const anos=[...new Set(DADOS.map(x=>x._date.getFullYear()))].sort();
       const maxAno=Math.max(...anos);
 
