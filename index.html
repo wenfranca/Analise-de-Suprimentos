@@ -108,8 +108,11 @@ tr.total-row td{background:#f1f5f9;font-weight:700;color:#1e293b;border-top:2px 
     <div style="font-size:44px;margin-bottom:10px">🔐</div>
     <h2>Acesso Restrito</h2>
     <p>Sistema de Análise de Suprimentos®<br>Wendell França</p>
-    <input type="password" id="inp-senha" placeholder="Digite a senha…"
-      style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;text-align:center;margin-bottom:14px;transition:.2s;outline:none"
+    <input type="text" id="inp-usuario" placeholder="Usuário"
+      style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;margin-bottom:10px;transition:.2s;outline:none"
+      onkeydown="if(event.key==='Enter')document.getElementById('inp-senha').focus()">
+    <input type="password" id="inp-senha" placeholder="Senha"
+      style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;margin-bottom:14px;transition:.2s;outline:none"
       onkeydown="if(event.key==='Enter')verificarSenha()">
     <button class="btn btn-primary" style="width:100%;padding:10px;font-size:14px" onclick="verificarSenha()">Entrar</button>
     <p id="msg-senha" style="color:#ef4444;font-size:12px;margin-top:10px;min-height:18px"></p>
@@ -401,15 +404,28 @@ function renderPlotly(divId, fig){
 }
 
 function verificarSenha(){
+  const usuario=$('inp-usuario').value.trim().toLowerCase();
   const senha=$('inp-senha').value;
-  if(senha==='@#7263Wf'){
+
+  const USUARIOS={
+    'wenfranca': '@#7263Wf',
+    'auggosende': '@#1234Ag'
+  };
+
+  const senhaCorreta=USUARIOS[usuario];
+  if(senhaCorreta && senha===senhaCorreta){
     $('ov-senha').style.display='none';
     setTimeout(()=>{ $('ov-aviso').style.display='flex'; },600);
   } else {
-    $('msg-senha').textContent='❌ Senha incorreta!';
+    $('msg-senha').textContent='❌ Usuário ou senha incorretos!';
     $('inp-senha').style.borderColor='#ef4444';
+    $('inp-usuario').style.borderColor='#ef4444';
     $('inp-senha').value='';
-    setTimeout(()=>{ $('inp-senha').style.borderColor=''; $('msg-senha').textContent=''; },1500);
+    setTimeout(()=>{
+      $('inp-senha').style.borderColor='';
+      $('inp-usuario').style.borderColor='';
+      $('msg-senha').textContent='';
+    },1500);
   }
 }
 
@@ -537,44 +553,21 @@ function importarPlanilha(input){
     try{
       const wb=XLSX.read(e.target.result,{type:'array',cellDates:false});
 
-      // ── Lê aba principal (primeira aba com coluna Data) ───────────────────
-      let ws=wb.Sheets[wb.SheetNames[0]];
-      let raw=XLSX.utils.sheet_to_json(ws,{defval:null});
-
-      // Se a primeira aba não tiver Data, tenta encontrar a aba correta
-      if(!raw.length||!Object.keys(raw[0]||{}).some(k=>k.trim().toLowerCase()==='data')){
-        for(const sheetName of wb.SheetNames){
-          const tryWs=wb.Sheets[sheetName];
-          const tryRaw=XLSX.utils.sheet_to_json(tryWs,{defval:null});
-          if(tryRaw.length&&Object.keys(tryRaw[0]||{}).some(k=>k.trim().toLowerCase()==='data')){
-            ws=tryWs; raw=tryRaw; break;
-          }
-        }
-      }
-      if(!raw.length){ setStatus('❌ Planilha vazia.',false); return; }
-
-      // ── Lê aba de infraestrutura (Planilha1 ou qualquer aba com Nº Loja e colunas de infra) ──
-      // Identifica aba de infraestrutura: tem "Nº Loja" mas NÃO tem coluna "Data"
-      const INFRA_COLS_CHECK=['CLIMA','Clima','ÁREA DE VENDAS M²','Área De Vendas M²','CORREDORES','Corredores','ILHAS','Ilhas'];
-      let infraData={};  // mapa lojaStr → { ...colunas de infra }
+      // ── Lê aba principal: a que tem coluna "Data" ─────────────────────────
+      let ws=null, raw=[];
       for(const sheetName of wb.SheetNames){
         const tryWs=wb.Sheets[sheetName];
         const tryRaw=XLSX.utils.sheet_to_json(tryWs,{defval:null});
-        if(!tryRaw.length) continue;
-        const keys=Object.keys(tryRaw[0]);
-        const hasInfra=INFRA_COLS_CHECK.some(c=>keys.includes(c));
-        const hasLoja=keys.some(k=>k.trim().replace(/\s/g,'').toLowerCase().includes('loja'));
-        if(hasInfra&&hasLoja){
-          // Detecta coluna de loja
-          const colLoja=keys.find(k=>k.trim().replace(/\s/g,'').toLowerCase().includes('loja'))||keys[0];
-          tryRaw.forEach(row=>{
-            const loja=String(row[colLoja]||'').trim();
-            if(loja) infraData[loja]={...row};
-          });
-          setStatus(`ℹ️ Infraestrutura encontrada na aba "${sheetName}" — ${Object.keys(infraData).length} lojas`);
-          break;
+        if(tryRaw.length&&Object.keys(tryRaw[0]||{}).some(k=>k.trim().toLowerCase()==='data')){
+          ws=tryWs; raw=tryRaw; break;
         }
       }
+      if(!raw.length){ setStatus('❌ Nenhuma aba com coluna "Data" encontrada.',false); return; }
+
+      // ── Apenas lê a aba principal (Planilha1) ─────────────────────────────
+      // Toda a infraestrutura (Clima, Área, Corredores, Ilhas, Poço, etc.)
+      // deve estar na mesma aba que os dados financeiros
+      const infraData={}; // não faz JOIN com aba externa
 
       // Normaliza nomes de colunas
       const norm=raw.map(row=>{ const n={}; Object.entries(row).forEach(([k,v])=>n[k.trim()]=v); return n; });
@@ -584,12 +577,10 @@ function importarPlanilha(input){
       if(!cData){ setStatus("❌ Coluna 'Data' não encontrada.",false); return; }
       COL_DATA=cData;
 
-      // Parse datas + JOIN com infraestrutura por Nº Loja
+      // Parse datas — toda a infraestrutura já está na Planilha1
       DADOS=norm.map(row=>{
         const d=parseDate(row[COL_DATA]);
-        const lojaStr=String(row['Nº Loja']||'').trim();
-        const infra=infraData[lojaStr]||{};
-        return {...infra,...row,_date:d,'Mês Abrev':d?mesAbrev(d):null};
+        return {...row,_date:d,'Mês Abrev':d?mesAbrev(d):null};
       }).filter(x=>x._date!==null);
 
       if(!DADOS.length){ setStatus("❌ Nenhuma data válida.",false); return; }
@@ -1923,18 +1914,18 @@ function gerarCluster(){
   const COL_INFRA={
     clima:         ['Clima','CLIMA','clima','TIPO CLIMA'],
     area:          ['Área De Vendas M²','ÁREA DE VENDAS M²','Área de Vendas M²','AREA DE VENDAS M2',
-                   'área de vendas m²','AREA VENDAS M2','ÁREA VENDAS M²','Área M²','AREA M2',
-                   'AREA DE VENDAS','Área de Vendas','AREA VENDAS','Área Vendas'],
-    corredores:    ['Corredores','CORREDORES','corredores','NUM CORREDORES','QTD CORREDORES'],
-    climatizadores:['Climatizadores','CLIMATIZADORES','climatizadores','NUM CLIMATIZADORES'],
-    acougue:       ['Açougue','AÇOUGUE','ACOUGUE','açougue','Açogue','AÇOGUE ANO','Açougue Ano'],
-    exaustores:    ['Exaustores','EXAUSTORES','exaustores','NUM EXAUSTORES'],
+                   'área de vendas m²','AREA VENDAS M2','Área M²','AREA M2'],
+    corredores:    ['Corredores','CORREDORES','corredores'],
+    climatizadores:['Climatizadores','CLIMATIZADORES','climatizadores'],
+    acougue:       ['Açougue','AÇOUGUE','ACOUGUE','açougue'],
+    exaustores:    ['Exaustores','EXAUSTORES','exaustores'],
     volRefrig:     ['Vol. Refrigerado M³','VOL. REFRIGERADO M³','Vol. Refrigerado M3','VOL REFRIGERADO M3',
-                   'vol. refrigerado m³','VOL REFRIGERADO','Volume Refrigerado','Vol Refrig'],
-    ilhas:         ['Ilhas','ILHAS','ilhas','NUM ILHAS','QTD ILHAS'],
+                   'vol. refrigerado m³','VOL REFRIGERADO','Volume Refrigerado'],
+    ilhas:         ['Ilhas','ILHAS','ilhas'],
     noturna:       ['Operação Noturna','OPERAÇÃO NOTURNA','Operacao Noturna','OPERACAO NOTURNA',
-                   'Op Noturna','OP NOTURNA','Noturna','NOTURNA'],
-    poco:          ['POÇO','Poço','POCO','Poco','poço','poco','POÇO ARTESIANO','Poço Artesiano']
+                   'Op Noturna','Noturna','NOTURNA'],
+    poco:          ['Poço','POÇO','POCO','Poco','poço','POÇO ARTESIANO','Poço Artesiano'],
+    bips:          ['Bips','BIPS','bips','Bips por Sacolas','BIPS POR SACOLAS']
   };
 
   // Detecção: primeiro tenta match exato, depois match sem acento e case-insensitive
@@ -2030,6 +2021,9 @@ function gerarCluster(){
       ilhas:       infraCols.ilhas        ? num(row[infraCols.ilhas])        : 0,
       noturna:     infraCols.noturna      ? bool(row[infraCols.noturna])     : 0,
       poco:        infraCols.poco         ? bool(row[infraCols.poco])        : 0,
+      // Bips: busca o valor máximo entre todas as linhas da loja
+      // pois o Bips só está preenchido em uma conta específica (Sacolas ou Energia)
+      bips: infraCols.bips ? dl.reduce((max,x)=>Math.max(max, num(x[infraCols.bips]||0)), 0) : 0,
     });
   });
 
@@ -2076,7 +2070,12 @@ function gerarCluster(){
     const fNoturna= (p.noturna||0) * 0.10;             // +0.10 se opera à noite
     const fPoco   = (p.poco||0) * 0.03;                // +0.03 se tem poço
     const fCor    = (p.corredores||0) / 10 * 0.01;     // +0.01 por corredor
-    return 1 + fClima + fRefrig + fIlhas + fAcougue + fNoturna + fPoco + fCor;
+    // Bips/mês: volume absoluto de movimento (escala real: 300k–1.6M)
+    // Ignora valores < 1000 (dados incorretos/zerados)
+    // Fator: até +0.15 para lojas de alto fluxo (≥1.5M bips/mês)
+    const bipsVal = (p.bips||0) >= 1000 ? p.bips : 0;
+    const fBips   = Math.min(bipsVal / 1500000 * 0.15, 0.15);
+    return 1 + fClima + fRefrig + fIlhas + fAcougue + fNoturna + fPoco + fCor + fBips;
   }
 
   // Calcula score para cada loja
@@ -2161,6 +2160,7 @@ function gerarCluster(){
         `Corredores: ${p.corredores||'—'} | Climatiz.: ${p.climatizadores||'—'}<br>` +
         `Vol.Refrig: ${p.volRefrig>0?Math.round(p.volRefrig)+'m³':'—'} | Ilhas: ${p.ilhas||'—'}<br>` +
         `Açougue: ${p.acougue?'🥩 Sim':'Não'} | Noturna: ${p.noturna?'🌙 Sim':'Não'} | Poço: ${p.poco?'💧 Sim':'Não'}<br>` +
+        `Bips/sacolas: ${p.bips||'—'}<br>` +
         `Clima: ${['—','Frio','Ameno','Moderado','Quente','Muito Quente'][p.clima]||'—'}<br>` +
         `─────────────────────<br>` +
         `Tarifa: ${p.tarifa?p.tarifa.toFixed(4)+' R$/kWh':'—'} | Faixa: ${ICONES[k]} ${LBLS[k]}`),
@@ -2211,6 +2211,7 @@ function gerarCluster(){
     {label:'Exaustores',  fn:p=>p.exaustores,          ativo:temInfra&&infraCols.exaustores},
     {label:'Açougue',     fn:p=>p.acougue,             ativo:temInfra&&infraCols.acougue},
     {label:'Poço',        fn:p=>p.poco,                ativo:temInfra&&infraCols.poco},
+    {label:'Bips/sacolas',fn:p=>p.bips,                ativo:temInfra&&infraCols.bips},
     {label:'Noturna',     fn:p=>p.noturna,             ativo:temInfra&&infraCols.noturna},
     {label:'Clima',       fn:p=>p.clima,               ativo:temInfra&&infraCols.clima},
     {label:'Tarifa',      fn:p=>p.tarifa??0,           ativo:true},
@@ -2281,7 +2282,7 @@ function gerarCluster(){
   const temI=temInfra&&infraCols.ilhas, temC=temInfra&&infraCols.climatizadores;
   const temCor=temInfra&&infraCols.corredores;
   const temN=temInfra&&infraCols.noturna, temAc=temInfra&&infraCols.acougue;
-  const temPoco=temInfra&&infraCols.poco;
+  const temPoco=temInfra&&infraCols.poco, temBips=temInfra&&infraCols.bips;
   let html='<div class="section-title">📋 Lojas por Faixa de Score — ordenadas por Score (maior → menor)</div><div class="tbl-wrap" style="overflow-x:auto"><table><thead><tr>';
   html+='<th>Faixa</th><th>Loja</th><th>Regional</th>';
   html+='<th>Score ▼</th><th>kWh/m²</th><th>Fator Infra</th>';
@@ -2294,6 +2295,7 @@ function gerarCluster(){
   if(temAc) html+='<th>Açougue</th>';
   if(temN)  html+='<th>Noturna</th>';
   if(temPoco) html+='<th>Poço</th>';
+  if(temBips) html+='<th>Bips/sacolas</th>';
   html+='</tr></thead><tbody>';
   [...Array(kFinal).keys()].forEach(k=>{
     pontos.filter(p=>p.cluster===k).sort((a,b)=>b.score-a.score).forEach(p=>{
@@ -2318,6 +2320,7 @@ function gerarCluster(){
         ${temAc?`<td>${p.acougue?'🥩 Sim':'—'}</td>`:''}
         ${temN ?`<td>${p.noturna?'🌙 Sim':'—'}</td>`:''}
         ${temPoco?`<td>${p.poco?'💧 Sim':'—'}</td>`:''}
+        ${temBips?`<td>${p.bips||'—'}</td>`:''}
       </tr>`;
     });
   });
@@ -2354,6 +2357,7 @@ function exportarCluster(){
   const temAc=tabelaCluster.some(p=>p.acougue>0);
   const temN=tabelaCluster.some(p=>p.noturna>0);
   const temPoco=tabelaCluster.some(p=>p.poco>0);
+  const temBips=tabelaCluster.some(p=>p.bips>0);
   const temClima=tabelaCluster.some(p=>p.clima>0);
 
   // Monta cabeçalho
@@ -2366,6 +2370,7 @@ function exportarCluster(){
   if(temAc)    headers.push('Açougue');
   if(temN)     headers.push('Op. Noturna');
   if(temPoco)  headers.push('Poço Artesiano');
+  if(temBips)  headers.push('Bips/Sacolas');
   if(temClima) headers.push('Clima');
 
   // Monta linhas ordenadas por cluster e kWh desc
@@ -2393,6 +2398,7 @@ function exportarCluster(){
       if(temAc)    row.push(p.acougue?'Sim':'Não');
       if(temN)     row.push(p.noturna?'Sim':'Não');
       if(temPoco)  row.push(p.poco?'Sim':'Não');
+      if(temBips)  row.push(p.bips||0);
       if(temClima) row.push(climaNomes[p.clima]||p.clima);
       rows.push(row);
     });
@@ -2411,6 +2417,7 @@ function exportarCluster(){
   if(temAc)    colWidths.push(10);
   if(temN)     colWidths.push(12);
   if(temPoco)  colWidths.push(14);
+  if(temBips)  colWidths.push(14);
 
   // Score=col3, kWh/m²=col4, FatorInfra=col5, kWh/mês=col6, Tarifa=col7, Gasto=col8
   const fmtMap={3:'0.0',4:'0.0',5:'0.00',6:'#,##0',7:'0.0000',8:'#,##0.00',9:'0.0%',10:'0.0%'};
